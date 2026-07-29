@@ -1,0 +1,37 @@
+project_root: "/Users/admin/PycharmProjects/pythonProject/FOOTWIN_SPORTS_Big_6_26_27"
+
+database:
+  main: "database/footwin_sports.db"
+  backups: "database/backups"
+  migrations: "database/migrations"
+
+data:
+  input: "data/input"
+  raw: "data/raw"
+  cache: "data/cache"
+  processed: "data/processed"
+  validated: "data/validated"
+  snapshots: "data/snapshots"
+
+models:
+  active: "models/active"
+  candidates: "models/candidates"
+  archived: "models/archived"
+
+outputs:
+  staging: "outputs/staging"
+  current: "outputs/published/current"
+  history: "outputs/published/history"
+  ratings: "outputs/ratings"
+  predictions: "outputs/predictions"
+  simulations: "outputs/simulations"
+
+reports:
+  validation: "reports/validation"
+  daily: "reports/daily"
+  backtesting: "reports/backtesting"
+  system_health: "reports/system_health"
+
+logs: "logs"
+runtime: "runtime"
+tests: "tests"

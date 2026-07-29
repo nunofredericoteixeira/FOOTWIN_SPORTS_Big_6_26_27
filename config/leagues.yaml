@@ -1,0 +1,140 @@
+ENG1:
+  name: "Premier League"
+  country: "England"
+  country_code: "ENG"
+  season_label: "2026/27"
+  team_count: 20
+  matches_per_team: 38
+  total_matches: 380
+  league_strength_factor: 1.00
+  relegation_places: 3
+  playoff_places: 0
+  active: true
+
+  european_places:
+    champions_league: 4
+    europa_league: 1
+    conference_league: 1
+
+  tiebreakers:
+    - points
+    - goal_difference
+    - goals_for
+
+ESP1:
+  name: "LaLiga"
+  country: "Spain"
+  country_code: "ESP"
+  season_label: "2026/27"
+  team_count: 20
+  matches_per_team: 38
+  total_matches: 380
+  league_strength_factor: 0.95
+  relegation_places: 3
+  playoff_places: 0
+  active: true
+
+  european_places:
+    champions_league: 4
+    europa_league: 1
+    conference_league: 1
+
+  tiebreakers:
+    - points
+    - head_to_head
+    - goal_difference
+    - goals_for
+
+ITA1:
+  name: "Serie A"
+  country: "Italy"
+  country_code: "ITA"
+  season_label: "2026/27"
+  team_count: 20
+  matches_per_team: 38
+  total_matches: 380
+  league_strength_factor: 0.93
+  relegation_places: 3
+  playoff_places: 0
+  active: true
+
+  european_places:
+    champions_league: 4
+    europa_league: 1
+    conference_league: 1
+
+  tiebreakers:
+    - points
+    - head_to_head
+    - goal_difference
+    - goals_for
+
+GER1:
+  name: "Bundesliga"
+  country: "Germany"
+  country_code: "GER"
+  season_label: "2026/27"
+  team_count: 18
+  matches_per_team: 34
+  total_matches: 306
+  league_strength_factor: 0.92
+  relegation_places: 2
+  playoff_places: 1
+  active: true
+
+  european_places:
+    champions_league: 4
+    europa_league: 1
+    conference_league: 1
+
+  tiebreakers:
+    - points
+    - goal_difference
+    - goals_for
+
+FRA1:
+  name: "Ligue 1"
+  country: "France"
+  country_code: "FRA"
+  season_label: "2026/27"
+  team_count: 18
+  matches_per_team: 34
+  total_matches: 306
+  league_strength_factor: 0.88
+  relegation_places: 2
+  playoff_places: 1
+  active: true
+
+  european_places:
+    champions_league: 4
+    europa_league: 1
+    conference_league: 1
+
+  tiebreakers:
+    - points
+    - goal_difference
+    - goals_for
+
+POR1:
+  name: "Liga Portugal"
+  country: "Portugal"
+  country_code: "POR"
+  season_label: "2026/27"
+  team_count: 18
+  matches_per_team: 34
+  total_matches: 306
+  league_strength_factor: 0.82
+  relegation_places: 2
+  playoff_places: 1
+  active: true
+
+  european_places:
+    champions_league: 2
+    europa_league: 1
+    conference_league: 1
+
+  tiebreakers:
+    - points
+    - head_to_head
+    - goal_difference
+    - goals_for

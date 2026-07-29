@@ -1,0 +1,33 @@
+model_version: "MODEL_0_1"
+model_name: "FOOTWIN SPORTS Collective Model"
+status: "DEVELOPMENT"
+season_label: "2026/27"
+created_for: "Big 6 European Leagues"
+
+description: >
+  Modelo inicial do FOOTWIN SPORTS baseado em dados coletivos
+  da época anterior, ratings ofensivos e defensivos, tratamento
+  das equipas promovidas, modelo Poisson e simulação Monte Carlo.
+
+enabled_components:
+  collective_performance: true
+  promoted_teams_adjustment: true
+  squad_quality: false
+  transfers: false
+  coaches: false
+  availability: false
+  world_cup_effect: false
+  calendar_load: false
+  dynamic_form: false
+
+goal_model: "POISSON_BASIC"
+simulation_model: "STATIC_RATING_MONTE_CARLO"
+
+dataset:
+  expected_version: "DATASET_2026_27_V001"
+  expected_season: "2026/27"
+
+development:
+  allow_synthetic_schedule: true
+  allow_partial_leagues: false
+  strict_validation: true

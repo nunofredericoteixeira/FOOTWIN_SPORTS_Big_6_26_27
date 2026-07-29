@@ -1,0 +1,9 @@
+pandas>=2.2
+numpy>=2.0
+openpyxl>=3.1
+PyYAML>=6.0
+scipy>=1.13
+SQLAlchemy>=2.0
+tqdm>=4.66
+matplotlib>=3.9
+python-dotenv>=1.0

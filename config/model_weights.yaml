@@ -1,0 +1,61 @@
+performance:
+  ppg_weight: 0.45
+  attack_weight: 0.20
+  defence_weight: 0.20
+  goal_difference_weight: 0.15
+
+rating_conversion:
+  center: 50.0
+  zscore_multiplier: 15.0
+  minimum_rating: 0.0
+  maximum_rating: 100.0
+  minimum_standard_deviation: 0.01
+
+promotion:
+  general:
+    champion_factor: 0.82
+    direct_factor: 0.79
+    playoff_factor: 0.75
+
+  attack:
+    champion_factor: 0.84
+    direct_factor: 0.81
+    playoff_factor: 0.77
+
+  defence:
+    champion_factor: 0.78
+    direct_factor: 0.75
+    playoff_factor: 0.71
+
+  first_division_regression_weight: 0.35
+  lower_table_reference_percentage: 0.25
+
+poisson:
+  attack_scale: 24.0
+  defence_scale: 24.0
+  minimum_lambda: 0.20
+  maximum_lambda: 4.50
+  maximum_goals: 8
+
+home_advantage:
+  home_goal_share: 0.54
+  away_goal_share: 0.46
+
+simulation:
+  quick_runs: 3000
+  default_runs: 20000
+  official_runs: 50000
+  random_seed: 202627
+
+validation:
+  probability_tolerance: 0.000001
+  minimum_data_confidence: 0.90
+  expected_leagues: 6
+  expected_teams: 114
+  expected_matches: 2058
+
+alerts:
+  low_rating_threshold: 10.0
+  high_rating_threshold: 95.0
+  high_lambda_threshold: 4.0
+  extreme_win_probability: 0.95
