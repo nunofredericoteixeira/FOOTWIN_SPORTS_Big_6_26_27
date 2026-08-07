@@ -14,3 +14,9 @@ outputs/
 .DS_Store
 .idea/
 .vscode/
+
+# FOOTWIN — ficheiros gerados durante recolha e validação
+data/input/*BACKUP*.xlsx
+data/input/*BEFORE_*.xlsx
+data/raw/
+reports/validation/Validation_Report_*.xlsx
