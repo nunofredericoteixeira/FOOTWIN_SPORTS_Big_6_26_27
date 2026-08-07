@@ -448,7 +448,13 @@ def build_prediction_record(
         separators=(",", ":"),
     )
 
+    prediction_id = (
+        f"{match["match_id"]}__"
+        f"{prediction.model_version}"
+    )
+
     return {
+        "prediction_id": prediction_id,
         "match_id": str(
             match["match_id"]
         ),
