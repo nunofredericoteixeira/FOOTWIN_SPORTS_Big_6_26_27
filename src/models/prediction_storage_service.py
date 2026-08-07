@@ -387,6 +387,21 @@ def build_prediction_record(
         prediction.most_likely_scores[0]
     )
 
+    likely_scores = list(
+        prediction.most_likely_scores
+    )
+
+    def format_score(index: int) -> str | None:
+        if index >= len(likely_scores):
+            return None
+
+        score = likely_scores[index]
+
+        return (
+            f"{score.home_goals}-"
+            f"{score.away_goals}"
+        )
+
     prediction_timestamp = (
         datetime.now(
             timezone.utc
@@ -487,6 +502,9 @@ def build_prediction_record(
         "over_25_probability": (
             prediction.over_25_probability
         ),
+        "over_2_5_probability": (
+            prediction.over_25_probability
+        ),
         "under_25_probability": (
             prediction.under_25_probability
         ),
@@ -547,6 +565,16 @@ def build_prediction_record(
         ),
         "most_likely_score_probability": (
             top_score.probability
+        ),
+
+        "most_likely_score": (
+            format_score(0)
+        ),
+        "second_likely_score": (
+            format_score(1)
+        ),
+        "third_likely_score": (
+            format_score(2)
         ),
 
         "most_likely_scores_json": (

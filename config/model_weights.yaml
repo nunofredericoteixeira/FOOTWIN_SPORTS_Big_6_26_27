@@ -27,7 +27,7 @@ promotion:
     direct_factor: 0.75
     playoff_factor: 0.71
 
-  first_division_regression_weight: 0.35
+  first_division_regression_weight: 0.70
   lower_table_reference_percentage: 0.25
 
 poisson:

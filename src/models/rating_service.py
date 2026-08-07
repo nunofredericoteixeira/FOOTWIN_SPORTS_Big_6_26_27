@@ -13,10 +13,8 @@ from src.models.performance_rating import (
     PerformanceRating,
     calculate_performance_ratings,
 )
-from src.utils.logger import get_logger
-from src.models.performance_rating import (
-    PerformanceRating,
-    calculate_performance_ratings,
+from src.models.promoted_team_adjustment import (
+    adjust_promoted_team_ratings,
 )
 from src.utils.logger import get_logger
 
@@ -31,6 +29,7 @@ class RatingServiceResult:
     inserted: int = 0
     updated: int = 0
     unchanged: int = 0
+    deleted: int = 0
     errors: int = 0
 
 
@@ -57,11 +56,42 @@ def calculate_and_store_ratings(
     - qualquer erro durante a gravação provoca rollback total.
     """
 
+    model_config = load_full_model_config()
+
     final_model_version = (
         model_version.strip()
         if model_version
         else get_configured_model_version()
     )
+
+    try:
+        promotion_adjustment_enabled = bool(
+            model_config[
+                "version"
+            ][
+                "enabled_components"
+            ][
+                "promoted_teams_adjustment"
+            ]
+        )
+
+        performance_weights = model_config[
+            "weights"
+        ][
+            "performance"
+        ]
+
+        promotion_config = model_config[
+            "weights"
+        ][
+            "promotion"
+        ]
+
+    except KeyError as exc:
+        raise RatingServiceError(
+            "Configuração necessária para os ratings incompleta: "
+            f"{exc}"
+        ) from exc
 
     connection = connect_database(database_path)
     result = RatingServiceResult()
@@ -99,13 +129,22 @@ def calculate_and_store_ratings(
                 )
 
             ratings = calculate_performance_ratings(
-                records=league_rows
+                records=league_rows,
+                weights=performance_weights,
             )
 
             source_by_team = {
                 str(row["team_id"]): row
                 for row in league_rows
             }
+
+            if promotion_adjustment_enabled:
+                ratings = adjust_promoted_team_ratings(
+                    ratings=ratings,
+                    source_by_team=source_by_team,
+                    promotion_config=promotion_config,
+                    performance_weights=performance_weights,
+                )
 
             for rating in ratings:
                 source = source_by_team[
@@ -135,6 +174,18 @@ def calculate_and_store_ratings(
                 "BEGIN IMMEDIATE"
             )
 
+            current_team_ids = [
+                item["team_id"]
+                for item in prepared_ratings
+            ]
+
+            result.deleted = delete_obsolete_ratings(
+                connection=connection,
+                rating_season=rating_season,
+                model_version=final_model_version,
+                valid_team_ids=current_team_ids,
+            )
+
             for rating_record in prepared_ratings:
                 action = upsert_team_rating(
                     connection=connection,
@@ -155,10 +206,7 @@ def calculate_and_store_ratings(
                 rating_season=rating_season,
                 model_version=final_model_version,
                 expected_total=len(prepared_ratings),
-                team_ids=[
-                    item["team_id"]
-                    for item in prepared_ratings
-                ],
+                team_ids=current_team_ids,
             )
 
             connection.commit()
@@ -198,12 +246,14 @@ def calculate_and_store_ratings(
 
     logger.info(
         "Ratings concluídos | ligas=%s | equipas=%s | "
-        "inseridos=%s | atualizados=%s | inalterados=%s",
+        "inseridos=%s | atualizados=%s | inalterados=%s | "
+        "eliminados=%s",
         result.leagues_processed,
         result.teams_processed,
         result.inserted,
         result.updated,
         result.unchanged,
+        result.deleted,
     )
 
     return result
@@ -229,6 +279,8 @@ def load_performance_rows(
                 p.goals_for,
                 p.goals_against,
                 p.goal_difference,
+                p.promoted,
+                p.promotion_method,
                 p.data_confidence,
                 p.dataset_version
             FROM team_season_performance p
@@ -259,6 +311,8 @@ def load_performance_rows(
                 p.goals_for,
                 p.goals_against,
                 p.goal_difference,
+                p.promoted,
+                p.promotion_method,
                 p.data_confidence,
                 p.dataset_version
             FROM team_season_performance p
@@ -367,6 +421,57 @@ def build_database_rating(
         "league_relative_rating": rating.final_rating,
         "rating_confidence": rating_confidence,
     }
+
+
+def delete_obsolete_ratings(
+    connection: sqlite3.Connection,
+    rating_season: str,
+    model_version: str,
+    valid_team_ids: list[str],
+) -> int:
+    """
+    Elimina ratings da mesma época/modelo que já não pertencem
+    ao conjunto atual de equipas processadas.
+
+    A operação decorre dentro da transação principal.
+    """
+
+    if not valid_team_ids:
+        raise RatingServiceError(
+            "Não existem equipas válidas para preservar ratings."
+        )
+
+    placeholders = ",".join(
+        "?"
+        for _ in valid_team_ids
+    )
+
+    cursor = connection.execute(
+        f"""
+        DELETE FROM team_ratings
+        WHERE season_label = ?
+          AND model_version = ?
+          AND team_id NOT IN ({placeholders})
+        """,
+        [
+            rating_season,
+            model_version,
+            *valid_team_ids,
+        ],
+    )
+
+    deleted = int(cursor.rowcount)
+
+    if deleted:
+        logger.info(
+            "Ratings obsoletos eliminados | "
+            "época=%s | modelo=%s | total=%s",
+            rating_season,
+            model_version,
+            deleted,
+        )
+
+    return deleted
 
 
 def upsert_team_rating(
@@ -558,14 +663,16 @@ def validate_stored_ratings(
     ]
 
     total = connection.execute(
-        f"""
+        """
         SELECT COUNT(*) AS total
         FROM team_ratings
         WHERE season_label = ?
           AND model_version = ?
-          AND team_id IN ({placeholders})
         """,
-        parameters,
+        (
+            rating_season,
+            model_version,
+        ),
     ).fetchone()["total"]
 
     if int(total) != expected_total:
