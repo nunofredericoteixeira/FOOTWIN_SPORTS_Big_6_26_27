@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 
 from src.config.model_config import load_model_version
+from src.database.init_database import connect_database
 from src.importers.fixtures_importer import import_fixtures
 from src.collectors.write_por1_calendar_to_dataset import (
     DATASET_PATH,
@@ -118,6 +122,63 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+
+def find_next_round() -> int | None:
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    connection = connect_database()
+
+    try:
+        row = connection.execute(
+            """
+            SELECT round_number
+            FROM matches
+            WHERE league_id = 'POR1'
+              AND season_label = '2026/27'
+              AND status IN ('SCHEDULED', 'POSTPONED')
+              AND match_date >= ?
+            ORDER BY
+                match_date,
+                round_number,
+                match_id
+            LIMIT 1
+            """,
+            (now_utc.strftime("%Y-%m-%d %H:%M:%S"),),
+        ).fetchone()
+
+    finally:
+        connection.close()
+
+    if row is None:
+        return None
+
+    return int(row["round_number"])
+
+
+def recalculate_next_round_predictions() -> None:
+    round_number = find_next_round()
+
+    if round_number is None:
+        print("Não existem jogos futuros elegíveis para previsão.")
+        return
+
+    print()
+    print(f"Próxima jornada elegível: {round_number}")
+    print("A recalcular previsões prudentes...")
+
+    subprocess.run(
+        [
+            sys.executable,
+            "run_round_predictions.py",
+            "--league",
+            "POR1",
+            "--round",
+            str(round_number),
+        ],
+        check=True,
+    )
+
+
 def main() -> None:
     print("=" * 100)
     print("POR1 — ATUALIZAÇÃO DIÁRIA DO CALENDÁRIO OFICIAL")
@@ -153,6 +214,7 @@ def main() -> None:
 
     if not added and not removed and not changed:
         print("Sem alterações reais no calendário.")
+        recalculate_next_round_predictions()
         print("RESULTADO: UNCHANGED")
         return
 
@@ -205,6 +267,7 @@ def main() -> None:
     print(f"SQLite inalterados: {result.unchanged}")
     print(f"SQLite ignorados: {result.skipped}")
     print(f"SQLite erros: {result.errors}")
+    recalculate_next_round_predictions()
     print("RESULTADO: SUCCESS")
 
 
