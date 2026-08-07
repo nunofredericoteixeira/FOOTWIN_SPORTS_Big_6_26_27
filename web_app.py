@@ -6,6 +6,8 @@ from pathlib import Path
 
 from flask import Flask, render_template_string
 
+from src.services.final_result_service import run_final_result_update
+
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "database" / "footwin_sports.db"
 
@@ -162,8 +164,87 @@ HTML_TEMPLATE = """
             align-items: center;
             gap: 14px;
             margin-top: 17px;
-            padding-top: 17px;
+            padding: 17px 14px 14px;
             border-top: 1px solid var(--border);
+            border-radius: 14px;
+            transition:
+                background 0.25s ease,
+                border-color 0.25s ease,
+                box-shadow 0.25s ease;
+        }
+
+        .prediction.result-pending {
+            margin-left: -14px;
+            margin-right: -14px;
+        }
+
+        .prediction.result-green {
+            margin-left: -14px;
+            margin-right: -14px;
+            color: #d9ffe9;
+            background: rgba(0, 255, 136, 0.10);
+            border: 1px solid rgba(0, 255, 136, 0.72);
+            box-shadow:
+                0 0 8px rgba(0, 255, 136, 0.72),
+                0 0 22px rgba(0, 255, 136, 0.40),
+                inset 0 0 18px rgba(0, 255, 136, 0.08);
+        }
+
+        .prediction.result-red {
+            margin-left: -14px;
+            margin-right: -14px;
+            color: #ffe0e0;
+            background: rgba(255, 37, 37, 0.11);
+            border: 1px solid rgba(255, 55, 55, 0.80);
+            box-shadow:
+                0 0 8px rgba(255, 45, 45, 0.78),
+                0 0 22px rgba(255, 35, 35, 0.44),
+                inset 0 0 18px rgba(255, 35, 35, 0.09);
+        }
+
+        .prediction.result-gold {
+            margin-left: -14px;
+            margin-right: -14px;
+            color: #fff7cf;
+            background: rgba(255, 204, 0, 0.12);
+            border: 1px solid rgba(255, 215, 0, 0.88);
+            box-shadow:
+                0 0 8px rgba(255, 215, 0, 0.92),
+                0 0 24px rgba(255, 184, 0, 0.52),
+                inset 0 0 20px rgba(255, 215, 0, 0.10);
+        }
+
+        .prediction.result-green .badge {
+            background: #00ff88;
+            box-shadow: 0 0 14px rgba(0, 255, 136, 0.85);
+        }
+
+        .prediction.result-red .badge {
+            background: #ff3535;
+            color: #ffffff;
+            box-shadow: 0 0 14px rgba(255, 53, 53, 0.88);
+        }
+
+        .prediction.result-gold .badge {
+            background: #ffd700;
+            color: #382b00;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.95);
+        }
+
+        .prediction.result-green .subtitle,
+        .prediction.result-green .score,
+        .prediction.result-red .subtitle,
+        .prediction.result-red .score,
+        .prediction.result-gold .subtitle,
+        .prediction.result-gold .score {
+            color: inherit;
+        }
+
+        .actual-result {
+            display: block;
+            margin-top: 5px;
+            font-size: 13px;
+            font-weight: 700;
         }
 
         .badge {
@@ -263,7 +344,7 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction {{ match.result_class }}">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">{{ match.prudent }}</span>
@@ -271,6 +352,13 @@ HTML_TEMPLATE = """
                         <div class="score">
                             Resultado mais provável:
                             <strong>{{ match.most_likely_score or "—" }}</strong>
+
+                            {% if match.actual_score %}
+                                <span class="actual-result">
+                                    Resultado final:
+                                    {{ match.actual_score }}
+                                </span>
+                            {% endif %}
                         </div>
                     </div>
                 </article>
@@ -351,6 +439,84 @@ def prudent_prediction(
     return prudent_sign
 
 
+def get_result_sign(
+    home_goals: int,
+    away_goals: int,
+) -> str:
+    """Converte o marcador real no sinal 1, X ou 2."""
+
+    if home_goals > away_goals:
+        return "1"
+
+    if home_goals < away_goals:
+        return "2"
+
+    return "X"
+
+
+def parse_score(
+    score: str | None,
+) -> tuple[int, int] | None:
+    """Interpreta um marcador no formato casa-fora."""
+
+    if not score:
+        return None
+
+    try:
+        home_text, away_text = score.split("-", 1)
+
+        return (
+            int(home_text.strip()),
+            int(away_text.strip()),
+        )
+
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def evaluate_prediction_result(
+    prudent: str,
+    most_likely_score: str | None,
+    home_goals: int | None,
+    away_goals: int | None,
+) -> str:
+    """
+    Devolve a classe visual da validação.
+
+    Dourado: prudente e marcador exato corretos.
+    Verde: apenas um dos dois correto.
+    Vermelho: ambos errados.
+    Pendente: jogo ainda sem resultado final.
+    """
+
+    if home_goals is None or away_goals is None:
+        return "result-pending"
+
+    actual_sign = get_result_sign(
+        home_goals,
+        away_goals,
+    )
+
+    prudent_correct = actual_sign in prudent
+
+    predicted_score = parse_score(
+        most_likely_score
+    )
+
+    exact_score_correct = (
+        predicted_score
+        == (home_goals, away_goals)
+    )
+
+    if prudent_correct and exact_score_correct:
+        return "result-gold"
+
+    if prudent_correct or exact_score_correct:
+        return "result-green"
+
+    return "result-red"
+
+
 def get_next_round_matches() -> tuple[int | None, list[dict]]:
     now_utc = datetime.now(timezone.utc).isoformat()
 
@@ -383,6 +549,10 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                 m.match_id,
                 m.round_number,
                 m.match_date,
+                m.status,
+                m.home_goals,
+                m.away_goals,
+                m.updated_at AS result_updated_at,
                 home.team_name AS home_team,
                 away.team_name AS away_team,
                 p.home_win_probability,
@@ -406,7 +576,7 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
             WHERE m.league_id = 'POR1'
               AND m.season_label = '2026/27'
               AND m.round_number = ?
-              AND m.status IN ('SCHEDULED', 'POSTPONED')
+              AND m.status IN ('SCHEDULED', 'POSTPONED', 'PLAYED')
             ORDER BY m.match_date, m.match_id
             """,
             (round_number,),
@@ -426,6 +596,28 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
         draw_probability = float(row["draw_probability"])
         away_probability = float(row["away_win_probability"])
 
+        prudent = prudent_prediction(
+            home_probability,
+            draw_probability,
+            away_probability,
+            row["most_likely_score"],
+        )
+
+        home_goals = row["home_goals"]
+        away_goals = row["away_goals"]
+
+        actual_score = None
+
+        if home_goals is not None and away_goals is not None:
+            actual_score = f"{home_goals}-{away_goals}"
+
+        result_class = evaluate_prediction_result(
+            prudent=prudent,
+            most_likely_score=row["most_likely_score"],
+            home_goals=home_goals,
+            away_goals=away_goals,
+        )
+
         matches.append(
             {
                 "home_team": row["home_team"],
@@ -435,13 +627,12 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                 "draw_probability": draw_probability,
                 "away_probability": away_probability,
                 "most_likely_score": row["most_likely_score"],
-                "prudent": prudent_prediction(
-                    home_probability,
-                    draw_probability,
-                    away_probability,
-                    row["most_likely_score"],
-                ),
+                "prudent": prudent,
+                "status": row["status"],
+                "actual_score": actual_score,
+                "result_class": result_class,
                 "prediction_timestamp": row["prediction_timestamp"],
+                "result_updated_at": row["result_updated_at"],
             }
         )
 
@@ -450,6 +641,19 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
 
 @app.route("/")
 def predictions():
+    try:
+        run_final_result_update(
+            league_id="POR1",
+            season_label="2026/27",
+            minutes_after_kickoff=120,
+            database_path=DATABASE_PATH,
+        )
+    except Exception as exc:
+        print(
+            "AVISO: não foi possível atualizar "
+            f"os resultados finais: {exc}"
+        )
+
     round_number, matches = get_next_round_matches()
     key = ", ".join(match["prudent"] for match in matches)
 
