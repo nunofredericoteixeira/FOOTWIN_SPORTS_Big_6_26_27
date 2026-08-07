@@ -20,3 +20,7 @@ data/input/*BACKUP*.xlsx
 data/input/*BEFORE_*.xlsx
 data/raw/
 reports/validation/Validation_Report_*.xlsx
+
+# SQLite runtime files
+*.db-wal
+*.db-shm
