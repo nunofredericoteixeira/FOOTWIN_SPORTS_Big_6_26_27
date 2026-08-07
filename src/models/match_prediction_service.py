@@ -261,6 +261,31 @@ def predict_match(
         )
     )
 
+    outcome_total = (
+        distribution.home_win_probability
+        + distribution.draw_probability
+        + distribution.away_win_probability
+    )
+
+    if outcome_total <= 0.0:
+        raise MatchPredictionServiceError(
+            "A soma das probabilidades 1X2 deve ser superior a zero."
+        )
+
+    home_win_probability = (
+        distribution.home_win_probability
+        / outcome_total
+    )
+    draw_probability = (
+        distribution.draw_probability
+        / outcome_total
+    )
+    away_win_probability = (
+        1.0
+        - home_win_probability
+        - draw_probability
+    )
+
     prediction = MatchPrediction(
         home_team_id=final_home_team_id,
         home_team_name=str(
@@ -288,15 +313,15 @@ def predict_match(
             6,
         ),
         home_win_probability=round(
-            distribution.home_win_probability,
+            home_win_probability,
             12,
         ),
         draw_probability=round(
-            distribution.draw_probability,
+            draw_probability,
             12,
         ),
         away_win_probability=round(
-            distribution.away_win_probability,
+            away_win_probability,
             12,
         ),
         over_15_probability=round(
@@ -526,11 +551,10 @@ def validate_prediction(
 
     if abs(
         outcome_total
-        - distribution.total_probability
+        - 1.0
     ) > 0.000001:
         raise MatchPredictionServiceError(
-            "As probabilidades 1X2 não correspondem "
-            "à probabilidade total da distribuição."
+            "As probabilidades 1X2 não somam 1.0."
         )
 
     market_pairs = (

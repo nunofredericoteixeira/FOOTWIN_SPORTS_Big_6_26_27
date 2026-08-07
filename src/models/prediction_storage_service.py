@@ -42,6 +42,7 @@ def predict_and_store_matches(
     model_version: str | None = None,
     dataset_version: str | None = None,
     league_id: str | None = None,
+    round_number: int | None = None,
     match_id: str | None = None,
     run_id: str | None = None,
     max_goals: int = 12,
@@ -54,6 +55,7 @@ def predict_and_store_matches(
     É possível filtrar por:
     - dataset_version;
     - league_id;
+    - round_number;
     - match_id.
 
     A operação é atómica:
@@ -82,6 +84,7 @@ def predict_and_store_matches(
             season_label=season_label,
             dataset_version=dataset_version,
             league_id=league_id,
+            round_number=round_number,
             match_id=match_id,
         )
 
@@ -279,6 +282,7 @@ def load_matches_for_prediction(
     season_label: str,
     dataset_version: str | None = None,
     league_id: str | None = None,
+    round_number: int | None = None,
     match_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
@@ -313,6 +317,20 @@ def load_matches_for_prediction(
 
         parameters.append(
             league_id.strip().upper()
+        )
+
+    if round_number is not None:
+        if round_number < 1:
+            raise PredictionStorageError(
+                "round_number deve ser igual ou superior a 1."
+            )
+
+        conditions.append(
+            "m.round_number = ?"
+        )
+
+        parameters.append(
+            round_number
         )
 
     if match_id:
