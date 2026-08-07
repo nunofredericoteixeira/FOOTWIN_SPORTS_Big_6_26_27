@@ -79,6 +79,7 @@ def build_prudent_sign(
     draw_probability: float,
     away_probability: float,
     threshold: float,
+    most_likely_score: str | None = None,
 ) -> tuple[str, float]:
     probabilities = [
         ("1", home_probability),
@@ -99,21 +100,49 @@ def build_prudent_sign(
         - second_probability
     ) * 100
 
-    if difference > threshold:
-        return first_sign, difference
-
     sign_order = {
         "1": 1,
         "X": 2,
         "2": 3,
     }
 
-    prudent_sign = "".join(
-        sorted(
-            [first_sign, second_sign],
-            key=lambda sign: sign_order[sign],
+    if difference > threshold:
+        prudent_sign = first_sign
+    else:
+        prudent_sign = "".join(
+            sorted(
+                [first_sign, second_sign],
+                key=lambda sign: sign_order[sign],
+            )
         )
-    )
+
+    score_sign: str | None = None
+
+    if most_likely_score:
+        try:
+            home_goals_text, away_goals_text = (
+                most_likely_score.split("-", 1)
+            )
+            home_goals = int(home_goals_text)
+            away_goals = int(away_goals_text)
+
+            if home_goals > away_goals:
+                score_sign = "1"
+            elif home_goals < away_goals:
+                score_sign = "2"
+            else:
+                score_sign = "X"
+
+        except (TypeError, ValueError):
+            score_sign = None
+
+    if score_sign and score_sign not in prudent_sign:
+        prudent_sign = "".join(
+            sorted(
+                {first_sign, score_sign},
+                key=lambda sign: sign_order[sign],
+            )
+        )
 
     return prudent_sign, difference
 
@@ -154,7 +183,8 @@ def main() -> None:
                 at.team_name AS away_team,
                 p.home_win_probability AS p1,
                 p.draw_probability AS px,
-                p.away_win_probability AS p2
+                p.away_win_probability AS p2,
+                p.most_likely_score
             FROM match_predictions p
             INNER JOIN matches m
                 ON m.match_id = p.match_id
@@ -210,6 +240,7 @@ def main() -> None:
             draw_probability=float(row["px"]),
             away_probability=float(row["p2"]),
             threshold=args.threshold,
+            most_likely_score=row["most_likely_score"],
         )
 
         final_signs.append(

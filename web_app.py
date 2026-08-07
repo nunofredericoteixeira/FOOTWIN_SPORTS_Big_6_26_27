@@ -285,27 +285,70 @@ HTML_TEMPLATE = """
 """
 
 
-def prudent_prediction(home: float, draw: float, away: float) -> str:
+def prudent_prediction(
+    home: float,
+    draw: float,
+    away: float,
+    most_likely_score: str | None = None,
+) -> str:
     probabilities = [
         ("1", home),
         ("X", draw),
         ("2", away),
     ]
-    probabilities.sort(key=lambda item: item[1], reverse=True)
+    probabilities.sort(
+        key=lambda item: item[1],
+        reverse=True,
+    )
 
     first_label, first_value = probabilities[0]
     second_label, second_value = probabilities[1]
 
+    order = {
+        "1": 0,
+        "X": 1,
+        "2": 2,
+    }
+
     if (first_value - second_value) <= 0.10:
-        order = {"1": 0, "X": 1, "2": 2}
-        return "".join(
+        prudent_sign = "".join(
             sorted(
                 [first_label, second_label],
                 key=lambda label: order[label],
             )
         )
+    else:
+        prudent_sign = first_label
 
-    return first_label
+    score_sign: str | None = None
+
+    if most_likely_score:
+        try:
+            home_goals_text, away_goals_text = (
+                most_likely_score.split("-", 1)
+            )
+            home_goals = int(home_goals_text)
+            away_goals = int(away_goals_text)
+
+            if home_goals > away_goals:
+                score_sign = "1"
+            elif home_goals < away_goals:
+                score_sign = "2"
+            else:
+                score_sign = "X"
+
+        except (TypeError, ValueError):
+            score_sign = None
+
+    if score_sign and score_sign not in prudent_sign:
+        prudent_sign = "".join(
+            sorted(
+                {first_label, score_sign},
+                key=lambda label: order[label],
+            )
+        )
+
+    return prudent_sign
 
 
 def get_next_round_matches() -> tuple[int | None, list[dict]]:
@@ -396,6 +439,7 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                     home_probability,
                     draw_probability,
                     away_probability,
+                    row["most_likely_score"],
                 ),
                 "prediction_timestamp": row["prediction_timestamp"],
             }
