@@ -149,8 +149,87 @@
             align-items: center;
             gap: 14px;
             margin-top: 17px;
-            padding-top: 17px;
+            padding: 17px 14px 14px;
             border-top: 1px solid var(--border);
+            border-radius: 14px;
+            transition:
+                background 0.25s ease,
+                border-color 0.25s ease,
+                box-shadow 0.25s ease;
+        }
+
+        .prediction.result-pending {
+            margin-left: -14px;
+            margin-right: -14px;
+        }
+
+        .prediction.result-green {
+            margin-left: -14px;
+            margin-right: -14px;
+            color: #d9ffe9;
+            background: rgba(0, 255, 136, 0.10);
+            border: 1px solid rgba(0, 255, 136, 0.72);
+            box-shadow:
+                0 0 8px rgba(0, 255, 136, 0.72),
+                0 0 22px rgba(0, 255, 136, 0.40),
+                inset 0 0 18px rgba(0, 255, 136, 0.08);
+        }
+
+        .prediction.result-red {
+            margin-left: -14px;
+            margin-right: -14px;
+            color: #ffe0e0;
+            background: rgba(255, 37, 37, 0.11);
+            border: 1px solid rgba(255, 55, 55, 0.80);
+            box-shadow:
+                0 0 8px rgba(255, 45, 45, 0.78),
+                0 0 22px rgba(255, 35, 35, 0.44),
+                inset 0 0 18px rgba(255, 35, 35, 0.09);
+        }
+
+        .prediction.result-gold {
+            margin-left: -14px;
+            margin-right: -14px;
+            color: #fff7cf;
+            background: rgba(255, 204, 0, 0.12);
+            border: 1px solid rgba(255, 215, 0, 0.88);
+            box-shadow:
+                0 0 8px rgba(255, 215, 0, 0.92),
+                0 0 24px rgba(255, 184, 0, 0.52),
+                inset 0 0 20px rgba(255, 215, 0, 0.10);
+        }
+
+        .prediction.result-green .badge {
+            background: #00ff88;
+            box-shadow: 0 0 14px rgba(0, 255, 136, 0.85);
+        }
+
+        .prediction.result-red .badge {
+            background: #ff3535;
+            color: #ffffff;
+            box-shadow: 0 0 14px rgba(255, 53, 53, 0.88);
+        }
+
+        .prediction.result-gold .badge {
+            background: #ffd700;
+            color: #382b00;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.95);
+        }
+
+        .prediction.result-green .subtitle,
+        .prediction.result-green .score,
+        .prediction.result-red .subtitle,
+        .prediction.result-red .score,
+        .prediction.result-gold .subtitle,
+        .prediction.result-gold .score {
+            color: inherit;
+        }
+
+        .actual-result {
+            display: block;
+            margin-top: 5px;
+            font-size: 13px;
+            font-weight: 700;
         }
 
         .badge {
@@ -208,7 +287,7 @@
             <div class="subtitle">FOOTWIN SPORTS</div>
             <h1>Prognósticos POR1</h1>
         </div>
-        <div class="updated">Atualizado: 2026-08-07T14:53:24+00:00</div>
+        <div class="updated">Atualizado: 2026-08-07T22:50:39+00:00</div>
     </header>
 
     
@@ -250,7 +329,7 @@
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction result-gold">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">X2</span>
@@ -258,6 +337,13 @@
                         <div class="score">
                             Resultado mais provável:
                             <strong>1-1</strong>
+
+                            
+                                <span class="actual-result">
+                                    Resultado final:
+                                    1-1
+                                </span>
+                            
                         </div>
                     </div>
                 </article>
@@ -283,7 +369,7 @@
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction result-pending">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">1</span>
@@ -291,6 +377,8 @@
                         <div class="score">
                             Resultado mais provável:
                             <strong>1-0</strong>
+
+                            
                         </div>
                     </div>
                 </article>
@@ -316,7 +404,7 @@
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction result-pending">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">1X</span>
@@ -324,6 +412,8 @@
                         <div class="score">
                             Resultado mais provável:
                             <strong>1-1</strong>
+
+                            
                         </div>
                     </div>
                 </article>
@@ -349,7 +439,7 @@
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction result-pending">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">2</span>
@@ -357,6 +447,8 @@
                         <div class="score">
                             Resultado mais provável:
                             <strong>0-1</strong>
+
+                            
                         </div>
                     </div>
                 </article>
@@ -382,7 +474,7 @@
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction result-pending">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">1</span>
@@ -390,6 +482,8 @@
                         <div class="score">
                             Resultado mais provável:
                             <strong>2-0</strong>
+
+                            
                         </div>
                     </div>
                 </article>
@@ -415,7 +509,7 @@
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction result-pending">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">1</span>
@@ -423,6 +517,8 @@
                         <div class="score">
                             Resultado mais provável:
                             <strong>1-0</strong>
+
+                            
                         </div>
                     </div>
                 </article>
@@ -448,7 +544,7 @@
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction result-pending">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">2</span>
@@ -456,6 +552,8 @@
                         <div class="score">
                             Resultado mais provável:
                             <strong>0-1</strong>
+
+                            
                         </div>
                     </div>
                 </article>
@@ -481,7 +579,7 @@
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction result-pending">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">1</span>
@@ -489,6 +587,8 @@
                         <div class="score">
                             Resultado mais provável:
                             <strong>2-0</strong>
+
+                            
                         </div>
                     </div>
                 </article>
@@ -514,7 +614,7 @@
                         </div>
                     </div>
 
-                    <div class="prediction">
+                    <div class="prediction result-pending">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
                             <span class="badge">1X</span>
@@ -522,6 +622,8 @@
                         <div class="score">
                             Resultado mais provável:
                             <strong>1-0</strong>
+
+                            
                         </div>
                     </div>
                 </article>
