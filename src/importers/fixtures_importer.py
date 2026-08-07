@@ -587,9 +587,23 @@ def upsert_fixture(
 
         return "INSERTED"
 
+    merged_fixture = dict(fixture)
+
+    final_statuses = {
+        "PLAYED",
+        "AWARDED",
+        "CANCELLED",
+        "ABANDONED",
+    }
+
+    if existing["status"] in final_statuses:
+        merged_fixture["status"] = existing["status"]
+        merged_fixture["home_goals"] = existing["home_goals"]
+        merged_fixture["away_goals"] = existing["away_goals"]
+
     if not fixture_has_changes(
         existing=existing,
-        new_values=fixture,
+        new_values=merged_fixture,
     ):
         return "UNCHANGED"
 
@@ -612,14 +626,14 @@ def upsert_fixture(
             updated_at = CURRENT_TIMESTAMP
         WHERE match_id = :match_id
         """,
-        fixture,
+        merged_fixture,
     )
 
     logger.info(
         "Jogo atualizado | %s | %s vs %s",
-        fixture["match_id"],
-        fixture["home_team_id"],
-        fixture["away_team_id"],
+        merged_fixture["match_id"],
+        merged_fixture["home_team_id"],
+        merged_fixture["away_team_id"],
     )
 
     return "UPDATED"

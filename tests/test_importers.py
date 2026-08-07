@@ -13,6 +13,7 @@ from src.database.schema import create_schema
 from src.importers.fixtures_importer import (
     import_fixtures,
     read_fixtures_from_excel,
+    upsert_fixture,
 )
 from src.importers.performance_importer import (
     PerformanceImportError,
@@ -473,6 +474,98 @@ class TestImportersWithTemporaryDatabase(unittest.TestCase):
             second_result.unchanged,
             4,
         )
+
+    def test_fixture_upsert_preserves_played_result(self) -> None:
+        self._import_valid_teams()
+
+        import_fixtures(
+            dataset_path=self.valid_dataset,
+            dataset_version=VALID_DATASET_VERSION,
+            require_approved_dataset=False,
+            database_path=self.database_path,
+        )
+
+        connection = connect_database(
+            self.database_path
+        )
+
+        try:
+            existing = connection.execute(
+                """
+                SELECT *
+                FROM matches
+                ORDER BY match_id
+                LIMIT 1
+                """
+            ).fetchone()
+
+            self.assertIsNotNone(existing)
+
+            match_id = existing["match_id"]
+
+            with connection:
+                connection.execute(
+                    """
+                    UPDATE matches
+                    SET
+                        status = 'PLAYED',
+                        home_goals = 2,
+                        away_goals = 1
+                    WHERE match_id = ?
+                    """,
+                    (match_id,),
+                )
+
+            played = connection.execute(
+                """
+                SELECT *
+                FROM matches
+                WHERE match_id = ?
+                """,
+                (match_id,),
+            ).fetchone()
+
+            incoming_fixture = {
+                "match_id": played["match_id"],
+                "league_id": played["league_id"],
+                "season_label": played["season_label"],
+                "round_number": played["round_number"],
+                "match_date": played["match_date"],
+                "home_team_id": played["home_team_id"],
+                "away_team_id": played["away_team_id"],
+                "status": "SCHEDULED",
+                "home_goals": None,
+                "away_goals": None,
+                "schedule_type": played["schedule_type"],
+                "source_url": played["source_url"],
+                "dataset_version": played["dataset_version"],
+            }
+
+            with connection:
+                action = upsert_fixture(
+                    connection=connection,
+                    fixture=incoming_fixture,
+                )
+
+            preserved = connection.execute(
+                """
+                SELECT
+                    status,
+                    home_goals,
+                    away_goals
+                FROM matches
+                WHERE match_id = ?
+                """,
+                (match_id,),
+            ).fetchone()
+
+        finally:
+            connection.close()
+
+        self.assertEqual(action, "UNCHANGED")
+        self.assertEqual(preserved["status"], "PLAYED")
+        self.assertEqual(preserved["home_goals"], 2)
+        self.assertEqual(preserved["away_goals"], 1)
 
     def _import_valid_teams(self) -> None:
         import_teams(
