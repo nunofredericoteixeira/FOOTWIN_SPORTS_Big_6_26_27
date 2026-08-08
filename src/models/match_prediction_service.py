@@ -14,6 +14,10 @@ from src.models.league_goal_environment import (
     calculate_expected_goals_base,
     calculate_league_goal_environment,
 )
+from src.models.lineup_context_service import (
+    MatchLineupContext,
+    load_match_lineup_context,
+)
 from src.models.poisson_model import (
     PoissonMatchDistribution,
     ScoreProbability,
@@ -89,6 +93,8 @@ def predict_match(
     away_team_id: str,
     season_label: str = "2026/27",
     model_version: str | None = None,
+    match_id: str | None = None,
+    prediction_stage: str = "PRE_MATCH",
     max_goals: int = 12,
     score_limit: int = 10,
     database_path: str | Path | None = None,
@@ -128,6 +134,44 @@ def predict_match(
         if model_version
         else get_configured_model_version()
     )
+
+    final_prediction_stage = str(
+        prediction_stage
+    ).strip().upper()
+
+    allowed_prediction_stages = {
+        "PRE_MATCH",
+        "CONFIRMED_LINEUP",
+        "MANUAL_OVERRIDE",
+    }
+
+    if (
+        final_prediction_stage
+        not in allowed_prediction_stages
+    ):
+        raise MatchPredictionServiceError(
+            "prediction_stage inválido: "
+            f"{prediction_stage}."
+        )
+
+    final_match_id = (
+        clean_required_text(
+            match_id,
+            "match_id",
+        )
+        if match_id is not None
+        else None
+    )
+
+    if (
+        final_prediction_stage
+        == "CONFIRMED_LINEUP"
+        and final_match_id is None
+    ):
+        raise MatchPredictionServiceError(
+            "match_id é obrigatório para uma "
+            "previsão CONFIRMED_LINEUP."
+        )
 
     connection = connect_database(
         database_path
@@ -184,6 +228,65 @@ def predict_match(
             away_team=away_strength,
         )
     )
+
+    lineup_context: MatchLineupContext | None = None
+
+    if (
+        final_prediction_stage
+        == "CONFIRMED_LINEUP"
+    ):
+        lineup_context = (
+            load_match_lineup_context(
+                match_id=final_match_id,
+                database_path=database_path,
+            )
+        )
+
+        if lineup_context is None:
+            raise MatchPredictionServiceError(
+                "Não existe um onze inicial "
+                "confirmado e completo para o jogo "
+                f"{final_match_id}."
+            )
+
+        if (
+            lineup_context.home.team_id
+            != final_home_team_id
+            or lineup_context.away.team_id
+            != final_away_team_id
+        ):
+            raise MatchPredictionServiceError(
+                "O onze confirmado não corresponde "
+                "às equipas fornecidas à previsão."
+            )
+
+        home_lineup_factor = (
+            lineup_context.home.attack_factor
+            / lineup_context.away.defence_factor
+            / lineup_context.away.goalkeeper_factor
+        )
+
+        away_lineup_factor = (
+            lineup_context.away.attack_factor
+            / lineup_context.home.defence_factor
+            / lineup_context.home.goalkeeper_factor
+        )
+
+        home_matchup_factor = round(
+            clamp_lineup_adjusted_factor(
+                home_matchup_factor
+                * home_lineup_factor
+            ),
+            6,
+        )
+
+        away_matchup_factor = round(
+            clamp_lineup_adjusted_factor(
+                away_matchup_factor
+                * away_lineup_factor
+            ),
+            6,
+        )
 
     environment = calculate_league_goal_environment(
         league_id=league_id,
@@ -399,6 +502,28 @@ def predict_match(
     )
 
     return prediction
+
+
+
+def clamp_lineup_adjusted_factor(
+    value: float,
+    minimum: float = 0.45,
+    maximum: float = 1.65,
+) -> float:
+    """
+    Limita o fator final após o ajuste do onze.
+
+    O intervalo é ligeiramente mais amplo do que
+    o fator-base, mas continua conservador.
+    """
+
+    parsed = float(value)
+
+    return max(
+        minimum,
+        min(maximum, parsed),
+    )
+
 
 
 def load_team_rating(

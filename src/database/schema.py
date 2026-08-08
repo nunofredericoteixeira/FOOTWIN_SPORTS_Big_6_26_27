@@ -267,6 +267,20 @@ CREATE TABLE IF NOT EXISTS match_predictions (
     run_id TEXT,
     prediction_timestamp TEXT NOT NULL,
     data_cutoff TEXT,
+
+    prediction_stage TEXT NOT NULL DEFAULT 'PRE_MATCH',
+    prediction_version INTEGER NOT NULL DEFAULT 1,
+    parent_prediction_id TEXT,
+
+    lineup_id TEXT,
+    lineup_hash TEXT,
+    lineup_confirmed INTEGER NOT NULL DEFAULT 0,
+    lineup_data_quality TEXT NOT NULL DEFAULT 'NOT_APPLICABLE',
+
+    is_current INTEGER NOT NULL DEFAULT 1,
+    input_snapshot_json TEXT,
+    superseded_at TEXT,
+
     lambda_home REAL NOT NULL,
     lambda_away REAL NOT NULL,
     home_win_probability REAL NOT NULL,
@@ -285,6 +299,29 @@ CREATE TABLE IF NOT EXISTS match_predictions (
         ON UPDATE CASCADE
         ON DELETE CASCADE,
 
+    FOREIGN KEY (parent_prediction_id)
+        REFERENCES match_predictions (prediction_id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+
+    CHECK (
+        prediction_stage IN (
+            'PRE_MATCH',
+            'CONFIRMED_LINEUP',
+            'MANUAL_OVERRIDE'
+        )
+    ),
+    CHECK (prediction_version >= 1),
+    CHECK (lineup_confirmed IN (0, 1)),
+    CHECK (
+        lineup_data_quality IN (
+            'NOT_APPLICABLE',
+            'COMPLETE',
+            'PARTIAL_MAPPING',
+            'FALLBACK_USED'
+        )
+    ),
+    CHECK (is_current IN (0, 1)),
     CHECK (lambda_home > 0),
     CHECK (lambda_away > 0),
     CHECK (home_win_probability >= 0 AND home_win_probability <= 1),
@@ -295,6 +332,37 @@ CREATE TABLE IF NOT EXISTS match_predictions (
 
 CREATE INDEX IF NOT EXISTS idx_predictions_match
 ON match_predictions (match_id);
+
+CREATE INDEX IF NOT EXISTS idx_predictions_match_stage
+ON match_predictions (
+    match_id,
+    model_version,
+    prediction_stage
+);
+
+CREATE INDEX IF NOT EXISTS idx_predictions_lineup_hash
+ON match_predictions (
+    match_id,
+    lineup_hash
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_predictions_stage_version_unique
+ON match_predictions (
+    match_id,
+    model_version,
+    prediction_stage,
+    prediction_version
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_predictions_current_stage_unique
+ON match_predictions (
+    match_id,
+    model_version,
+    prediction_stage
+)
+WHERE is_current = 1;
 
 CREATE TABLE IF NOT EXISTS league_simulations (
     simulation_id TEXT PRIMARY KEY,
@@ -411,6 +479,327 @@ CREATE TABLE IF NOT EXISTS execution_runs (
 
 CREATE INDEX IF NOT EXISTS idx_execution_runs_started_at
 ON execution_runs (started_at);
+
+CREATE TABLE IF NOT EXISTS players (
+    player_id TEXT PRIMARY KEY,
+    full_name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    date_of_birth TEXT,
+    nationality TEXT,
+    primary_position TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CHECK (active IN (0, 1))
+);
+
+CREATE INDEX IF NOT EXISTS idx_players_normalized_name
+ON players (normalized_name);
+
+CREATE TABLE IF NOT EXISTS team_squads (
+    team_squad_id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    player_id TEXT NOT NULL,
+    season_label TEXT NOT NULL,
+    shirt_number INTEGER,
+    position_code TEXT,
+    squad_status TEXT NOT NULL DEFAULT 'ACTIVE',
+    valid_from TEXT,
+    valid_until TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (team_id)
+        REFERENCES teams (team_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (player_id)
+        REFERENCES players (player_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    UNIQUE (
+        team_id,
+        player_id,
+        season_label
+    ),
+
+    CHECK (
+        squad_status IN (
+            'ACTIVE',
+            'LOAN',
+            'INJURED',
+            'SUSPENDED',
+            'INACTIVE',
+            'TRANSFERRED'
+        )
+    ),
+
+    CHECK (
+        shirt_number IS NULL
+        OR shirt_number >= 0
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_squads_team
+ON team_squads (
+    team_id,
+    season_label
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_squads_player
+ON team_squads (
+    player_id,
+    season_label
+);
+
+CREATE TABLE IF NOT EXISTS external_provider_mappings (
+    mapping_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    internal_entity_id TEXT NOT NULL,
+    external_entity_id TEXT NOT NULL,
+    external_name TEXT,
+    mapping_status TEXT NOT NULL DEFAULT 'CONFIRMED',
+    confidence REAL NOT NULL DEFAULT 1.0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (
+        provider,
+        entity_type,
+        external_entity_id
+    ),
+
+    UNIQUE (
+        provider,
+        entity_type,
+        internal_entity_id
+    ),
+
+    CHECK (
+        entity_type IN (
+            'LEAGUE',
+            'TEAM',
+            'PLAYER',
+            'MATCH'
+        )
+    ),
+
+    CHECK (
+        mapping_status IN (
+            'CONFIRMED',
+            'AUTOMATIC',
+            'MANUAL',
+            'PENDING',
+            'REJECTED'
+        )
+    ),
+
+    CHECK (
+        confidence >= 0
+        AND confidence <= 1
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_mappings_internal
+ON external_provider_mappings (
+    entity_type,
+    internal_entity_id
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_mappings_external
+ON external_provider_mappings (
+    provider,
+    entity_type,
+    external_entity_id
+);
+
+CREATE TABLE IF NOT EXISTS match_lineups (
+    lineup_id TEXT PRIMARY KEY,
+    match_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_fixture_id TEXT,
+    lineup_status TEXT NOT NULL,
+    home_formation TEXT,
+    away_formation TEXT,
+    lineup_hash TEXT NOT NULL,
+    announced_at TEXT,
+    fetched_at TEXT NOT NULL,
+    is_current INTEGER NOT NULL DEFAULT 1,
+    raw_payload_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (match_id)
+        REFERENCES matches (match_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    UNIQUE (
+        match_id,
+        lineup_hash
+    ),
+
+    CHECK (
+        lineup_status IN (
+            'PENDING',
+            'PARTIAL',
+            'CONFIRMED',
+            'CORRECTED',
+            'INVALID'
+        )
+    ),
+
+    CHECK (is_current IN (0, 1))
+);
+
+CREATE INDEX IF NOT EXISTS idx_match_lineups_match
+ON match_lineups (
+    match_id,
+    is_current
+);
+
+CREATE INDEX IF NOT EXISTS idx_match_lineups_hash
+ON match_lineups (
+    lineup_hash
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_match_lineups_current_unique
+ON match_lineups (match_id)
+WHERE is_current = 1;
+
+CREATE TABLE IF NOT EXISTS match_lineup_players (
+    lineup_player_id TEXT PRIMARY KEY,
+    lineup_id TEXT NOT NULL,
+    match_id TEXT NOT NULL,
+    team_id TEXT NOT NULL,
+    player_id TEXT,
+    provider_player_id TEXT,
+    player_name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    position_code TEXT,
+    formation_position TEXT,
+    shirt_number INTEGER,
+    captain INTEGER NOT NULL DEFAULT 0,
+    mapping_status TEXT NOT NULL DEFAULT 'PENDING',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (lineup_id)
+        REFERENCES match_lineups (lineup_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (match_id)
+        REFERENCES matches (match_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (team_id)
+        REFERENCES teams (team_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (player_id)
+        REFERENCES players (player_id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+
+    UNIQUE (
+        lineup_id,
+        team_id,
+        role,
+        provider_player_id
+    ),
+
+    CHECK (
+        role IN (
+            'STARTER',
+            'SUBSTITUTE'
+        )
+    ),
+
+    CHECK (captain IN (0, 1)),
+
+    CHECK (
+        mapping_status IN (
+            'CONFIRMED',
+            'AUTOMATIC',
+            'MANUAL',
+            'PENDING',
+            'UNMATCHED'
+        )
+    ),
+
+    CHECK (
+        shirt_number IS NULL
+        OR shirt_number >= 0
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_lineup_players_lineup
+ON match_lineup_players (
+    lineup_id,
+    team_id,
+    role
+);
+
+CREATE INDEX IF NOT EXISTS idx_lineup_players_player
+ON match_lineup_players (
+    player_id
+);
+
+CREATE TABLE IF NOT EXISTS match_lineup_fetches (
+    fetch_id TEXT PRIMARY KEY,
+    match_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_fixture_id TEXT,
+    attempted_at TEXT NOT NULL,
+    fetch_status TEXT NOT NULL,
+    home_starters_count INTEGER NOT NULL DEFAULT 0,
+    away_starters_count INTEGER NOT NULL DEFAULT 0,
+    http_status INTEGER,
+    response_hash TEXT,
+    raw_payload_json TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (match_id)
+        REFERENCES matches (match_id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+
+    CHECK (
+        fetch_status IN (
+            'SUCCESS',
+            'NO_LINEUP',
+            'PARTIAL',
+            'INVALID',
+            'HTTP_ERROR',
+            'PROVIDER_ERROR',
+            'MAPPING_ERROR'
+        )
+    ),
+
+    CHECK (home_starters_count >= 0),
+    CHECK (away_starters_count >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lineup_fetches_match
+ON match_lineup_fetches (
+    match_id,
+    attempted_at
+);
+
+CREATE INDEX IF NOT EXISTS idx_lineup_fetches_status
+ON match_lineup_fetches (
+    fetch_status,
+    attempted_at
+);
+
 
 CREATE TABLE IF NOT EXISTS validation_issues (
     issue_id TEXT PRIMARY KEY,

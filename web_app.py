@@ -650,7 +650,11 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                 p.draw_probability,
                 p.away_win_probability,
                 p.most_likely_score,
-                p.prediction_timestamp
+                p.prediction_timestamp,
+                p.prediction_stage,
+                p.prediction_version,
+                p.lineup_confirmed,
+                p.lineup_data_quality
             FROM matches AS m
             JOIN teams AS home
               ON home.team_id = m.home_team_id
@@ -661,7 +665,17 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                   SELECT p2.prediction_id
                   FROM match_predictions AS p2
                   WHERE p2.match_id = m.match_id
-                  ORDER BY p2.prediction_timestamp DESC, p2.created_at DESC
+                    AND p2.is_current = 1
+                  ORDER BY
+                      CASE p2.prediction_stage
+                          WHEN 'CONFIRMED_LINEUP' THEN 1
+                          WHEN 'MANUAL_OVERRIDE' THEN 2
+                          WHEN 'PRE_MATCH' THEN 3
+                          ELSE 4
+                      END,
+                      p2.prediction_version DESC,
+                      p2.prediction_timestamp DESC,
+                      p2.created_at DESC
                   LIMIT 1
               )
             WHERE m.league_id = 'POR1'
@@ -731,6 +745,16 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                 "actual_score": actual_score,
                 "result_class": result_class,
                 "prediction_timestamp": row["prediction_timestamp"],
+                "prediction_stage": row["prediction_stage"],
+                "prediction_version": int(
+                    row["prediction_version"]
+                ),
+                "lineup_confirmed": bool(
+                    row["lineup_confirmed"]
+                ),
+                "lineup_data_quality": (
+                    row["lineup_data_quality"]
+                ),
                 "result_updated_at": row["result_updated_at"],
             }
         )

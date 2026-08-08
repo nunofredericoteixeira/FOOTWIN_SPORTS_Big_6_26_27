@@ -11,6 +11,10 @@ from typing import Any
 
 from src.config.model_config import load_full_model_config
 from src.database.init_database import connect_database
+from src.models.lineup_context_service import (
+    MatchLineupContext,
+    load_match_lineup_context,
+)
 from src.models.match_prediction_service import (
     MatchPrediction,
     predict_match,
@@ -44,6 +48,7 @@ def predict_and_store_matches(
     league_id: str | None = None,
     round_number: int | None = None,
     match_id: str | None = None,
+    prediction_stage: str = "PRE_MATCH",
     run_id: str | None = None,
     max_goals: int = 12,
     score_limit: int = 10,
@@ -65,6 +70,26 @@ def predict_and_store_matches(
     4. Grava tudo numa única transação.
     5. Qualquer erro provoca rollback total.
     """
+
+    final_prediction_stage = str(
+        prediction_stage
+    ).strip().upper()
+
+    allowed_prediction_stages = {
+        "PRE_MATCH",
+        "CONFIRMED_LINEUP",
+        "MANUAL_OVERRIDE",
+    }
+
+    if (
+        final_prediction_stage
+        not in allowed_prediction_stages
+    ):
+        raise PredictionStorageError(
+            "prediction_stage inválido: "
+            f"{prediction_stage}."
+        )
+
 
     final_model_version = (
         model_version.strip()
@@ -117,15 +142,53 @@ def predict_and_store_matches(
                     model_version=(
                         final_model_version
                     ),
+                    match_id=str(
+                        match["match_id"]
+                    ),
+                    prediction_stage=(
+                        final_prediction_stage
+                    ),
                     max_goals=max_goals,
                     score_limit=score_limit,
                     database_path=database_path,
                 )
 
+                lineup_context: (
+                    MatchLineupContext | None
+                ) = None
+
+                if (
+                    final_prediction_stage
+                    == "CONFIRMED_LINEUP"
+                ):
+                    lineup_context = (
+                        load_match_lineup_context(
+                            match_id=str(
+                                match["match_id"]
+                            ),
+                            database_path=(
+                                database_path
+                            ),
+                        )
+                    )
+
+                    if lineup_context is None:
+                        raise PredictionStorageError(
+                            "Não foi possível carregar "
+                            "o onze confirmado durante "
+                            "a preparação da previsão."
+                        )
+
                 record = build_prediction_record(
                     match=match,
                     prediction=prediction,
                     run_id=run_id,
+                    prediction_stage=(
+                        final_prediction_stage
+                    ),
+                    lineup_context=(
+                        lineup_context
+                    ),
                 )
 
                 prepared_records.append(
@@ -385,14 +448,14 @@ def build_prediction_record(
     match: dict[str, Any],
     prediction: MatchPrediction,
     run_id: str | None,
+    prediction_stage: str,
+    lineup_context: (
+        MatchLineupContext | None
+    ) = None,
 ) -> dict[str, Any]:
     """
-    Converte uma previsão para o formato da tabela.
-
-    O dicionário inclui nomes equivalentes para suportar
-    diferentes estruturas de match_predictions.
-
-    Apenas as colunas que existem realmente serão gravadas.
+    Converte uma previsão para o formato da tabela,
+    incluindo etapa, versão e contexto do onze.
     """
 
     if not prediction.most_likely_scores:
@@ -448,16 +511,58 @@ def build_prediction_record(
         separators=(",", ":"),
     )
 
+    stage = str(
+        prediction_stage
+    ).strip().upper()
+
+    match_id = str(
+        match["match_id"]
+    )
+
     prediction_id = (
-        f"{match["match_id"]}__"
-        f"{prediction.model_version}"
+        f"{match_id}__"
+        f"{prediction.model_version}__"
+        f"{stage}__V001"
     )
 
     return {
         "prediction_id": prediction_id,
-        "match_id": str(
-            match["match_id"]
+        "match_id": match_id,
+        "prediction_stage": stage,
+        "prediction_version": 1,
+        "parent_prediction_id": None,
+
+        "lineup_id": (
+            lineup_context.lineup_id
+            if lineup_context is not None
+            else None
         ),
+        "lineup_hash": (
+            lineup_context.lineup_hash
+            if lineup_context is not None
+            else None
+        ),
+        "lineup_confirmed": (
+            1
+            if (
+                lineup_context is not None
+                and lineup_context.lineup_confirmed
+            )
+            else 0
+        ),
+        "lineup_data_quality": (
+            lineup_context.data_quality
+            if lineup_context is not None
+            else "NOT_APPLICABLE"
+        ),
+
+        "is_current": 1,
+        "input_snapshot_json": (
+            lineup_context.to_snapshot_json()
+            if lineup_context is not None
+            else None
+        ),
+        "superseded_at": None,
         "league_id": (
             prediction.league_id
         ),
@@ -637,8 +742,13 @@ def upsert_prediction(
     available_columns: set[str],
 ) -> str:
     """
-    Insere ou atualiza uma previsão utilizando apenas
-    as colunas existentes na tabela.
+    Grava previsões por etapa e por versão.
+
+    Regras:
+    - uma etapa pode ter apenas uma versão atual;
+    - cálculos iguais devolvem UNCHANGED;
+    - cálculos alterados desativam a versão anterior;
+    - a nova versão é sempre inserida, nunca sobrescrita.
     """
 
     filtered_record = {
@@ -648,110 +758,212 @@ def upsert_prediction(
         if key in available_columns
     }
 
-    required_logical_fields = {
+    required_fields = {
+        "prediction_id",
         "match_id",
         "model_version",
+        "prediction_stage",
+        "prediction_version",
+        "is_current",
     }
 
     missing = (
-        required_logical_fields
+        required_fields
         - set(filtered_record)
     )
 
     if missing:
         raise PredictionStorageError(
-            "A tabela match_predictions "
-            "não possui as colunas lógicas "
-            "obrigatórias: "
+            "Faltam campos obrigatórios para "
+            "versionamento: "
             + ", ".join(
                 sorted(missing)
             )
         )
 
-    existing = connection.execute(
+    match_id = str(
+        filtered_record["match_id"]
+    )
+    model_version = str(
+        filtered_record["model_version"]
+    )
+    stage = str(
+        filtered_record["prediction_stage"]
+    )
+
+    current = connection.execute(
         """
         SELECT *
         FROM match_predictions
         WHERE match_id = ?
           AND model_version = ?
+          AND prediction_stage = ?
+          AND is_current = 1
+        ORDER BY
+            prediction_version DESC,
+            created_at DESC
+        LIMIT 1
         """,
         (
-            record["match_id"],
-            record["model_version"],
+            match_id,
+            model_version,
+            stage,
         ),
     ).fetchone()
 
-    if existing is None:
-        columns = list(
-            filtered_record.keys()
+    if current is not None:
+        comparison_record = dict(
+            filtered_record
         )
 
-        placeholders = [
-            f":{column}"
-            for column in columns
-        ]
+        comparison_record[
+            "prediction_id"
+        ] = current["prediction_id"]
+
+        comparison_record[
+            "prediction_version"
+        ] = current["prediction_version"]
+
+        if not prediction_has_changes(
+            existing=current,
+            new_values=comparison_record,
+        ):
+            return "UNCHANGED"
+
+        next_version = (
+            int(
+                current["prediction_version"]
+                or 0
+            )
+            + 1
+        )
+
+        superseded_at = datetime.now(
+            timezone.utc
+        ).isoformat(
+            timespec="seconds"
+        )
 
         connection.execute(
-            f"""
-            INSERT INTO match_predictions (
-                {", ".join(columns)}
-            )
-            VALUES (
-                {", ".join(placeholders)}
-            )
+            """
+            UPDATE match_predictions
+            SET
+                is_current = 0,
+                superseded_at = ?
+            WHERE prediction_id = ?
             """,
-            filtered_record,
+            (
+                superseded_at,
+                current["prediction_id"],
+            ),
         )
 
-        logger.info(
-            "Previsão inserida | "
-            "match_id=%s",
-            record["match_id"],
+    else:
+        maximum_version = connection.execute(
+            """
+            SELECT COALESCE(
+                MAX(prediction_version),
+                0
+            ) AS maximum_version
+            FROM match_predictions
+            WHERE match_id = ?
+              AND model_version = ?
+              AND prediction_stage = ?
+            """,
+            (
+                match_id,
+                model_version,
+                stage,
+            ),
+        ).fetchone()["maximum_version"]
+
+        next_version = (
+            int(maximum_version or 0)
+            + 1
         )
 
-        return "INSERTED"
+    parent_prediction_id = None
 
-    if not prediction_has_changes(
-        existing=existing,
-        new_values=filtered_record,
-    ):
-        return "UNCHANGED"
+    if stage == "CONFIRMED_LINEUP":
+        parent = connection.execute(
+            """
+            SELECT prediction_id
+            FROM match_predictions
+            WHERE match_id = ?
+              AND model_version = ?
+              AND prediction_stage = 'PRE_MATCH'
+              AND is_current = 1
+            ORDER BY
+                prediction_version DESC
+            LIMIT 1
+            """,
+            (
+                match_id,
+                model_version,
+            ),
+        ).fetchone()
 
-    update_columns = [
-        column
-        for column in filtered_record
-        if column not in {
-            "match_id",
-            "model_version",
-        }
-    ]
+        if parent is not None:
+            parent_prediction_id = str(
+                parent["prediction_id"]
+            )
 
-    if not update_columns:
-        return "UNCHANGED"
+    filtered_record[
+        "prediction_version"
+    ] = next_version
 
-    assignments = [
-        f"{column} = :{column}"
-        for column in update_columns
+    filtered_record[
+        "prediction_id"
+    ] = (
+        f"{match_id}__"
+        f"{model_version}__"
+        f"{stage}__"
+        f"V{next_version:03d}"
+    )
+
+    filtered_record[
+        "parent_prediction_id"
+    ] = parent_prediction_id
+
+    filtered_record[
+        "is_current"
+    ] = 1
+
+    filtered_record[
+        "superseded_at"
+    ] = None
+
+    columns = list(
+        filtered_record.keys()
+    )
+
+    placeholders = [
+        f":{column}"
+        for column in columns
     ]
 
     connection.execute(
         f"""
-        UPDATE match_predictions
-        SET
-            {", ".join(assignments)}
-        WHERE match_id = :match_id
-          AND model_version = :model_version
+        INSERT INTO match_predictions (
+            {", ".join(columns)}
+        )
+        VALUES (
+            {", ".join(placeholders)}
+        )
         """,
         filtered_record,
     )
 
     logger.info(
-        "Previsão atualizada | "
-        "match_id=%s",
-        record["match_id"],
+        "Previsão inserida | "
+        "match_id=%s | stage=%s | versão=%s",
+        match_id,
+        stage,
+        next_version,
     )
 
-    return "UPDATED"
+    return "INSERTED"
+
 
 
 def prediction_has_changes(
@@ -767,9 +979,15 @@ def prediction_has_changes(
     """
 
     ignored_fields = {
+        "prediction_id",
         "match_id",
         "model_version",
+        "prediction_stage",
+        "prediction_version",
+        "parent_prediction_id",
         "prediction_timestamp",
+        "is_current",
+        "superseded_at",
         "created_at",
         "updated_at",
     }
@@ -819,180 +1037,84 @@ def validate_stored_predictions(
     available_columns: set[str],
 ) -> None:
     """
-    Confirma que todas as previsões foram gravadas.
+    Confirma que cada previsão preparada possui uma
+    versão atual gravada para o jogo, modelo e etapa.
+
+    A validação distingue PRE_MATCH de
+    CONFIRMED_LINEUP, permitindo que ambas coexistam.
     """
 
-    match_ids = [
-        record["match_id"]
-        for record in records
-    ]
-
-    if not match_ids:
+    if not records:
         raise PredictionStorageError(
             "Não existem previsões para validar."
         )
 
-    placeholders = ",".join(
-        "?"
-        for _ in match_ids
+    supports_stages = {
+        "prediction_stage",
+        "prediction_version",
+        "is_current",
+    }.issubset(
+        available_columns
     )
 
-    total = connection.execute(
-        f"""
-        SELECT COUNT(*) AS total
-        FROM match_predictions
-        WHERE model_version = ?
-          AND match_id IN ({placeholders})
-        """,
-        [
-            model_version,
-            *match_ids,
-        ],
-    ).fetchone()["total"]
-
-    if int(total) != len(match_ids):
-        raise PredictionStorageError(
-            "Total incorreto de previsões "
-            "após gravação. "
-            f"Esperado={len(match_ids)}; "
-            f"encontrado={total}"
+    for record in records:
+        match_id = str(
+            record["match_id"]
         )
 
-    probability_columns = [
-        column
-        for column in (
-            "home_win_probability",
-            "draw_probability",
-            "away_win_probability",
-            "home_win_prob",
-            "draw_prob",
-            "away_win_prob",
-            "over_15_probability",
-            "under_15_probability",
-            "over_25_probability",
-            "under_25_probability",
-            "over_35_probability",
-            "under_35_probability",
-            (
-                "both_teams_to_score_"
-                "probability"
-            ),
-            (
-                "both_teams_not_to_score_"
-                "probability"
-            ),
-            "btts_probability",
-            "btts_prob",
-            "prediction_confidence",
-            "confidence",
-            "data_confidence",
+        stage = str(
+            record.get(
+                "prediction_stage",
+                "PRE_MATCH",
+            )
         )
-        if column in available_columns
-    ]
 
-    for column in probability_columns:
-        invalid = connection.execute(
-            f"""
-            SELECT match_id
-            FROM match_predictions
-            WHERE model_version = ?
-              AND match_id IN ({placeholders})
-              AND (
-                  {column} IS NULL
-                  OR {column} < 0
-                  OR {column} > 1
-              )
-            """,
-            [
-                model_version,
-                *match_ids,
-            ],
-        ).fetchall()
-
-        if invalid:
-            invalid_ids = ", ".join(
-                str(row["match_id"])
-                for row in invalid
-            )
-
-            raise PredictionStorageError(
-                f"Valores inválidos na coluna "
-                f"{column}: {invalid_ids}"
-            )
-
-    lambda_columns = [
-        column
-        for column in (
-            "lambda_home",
-            "lambda_away",
-        )
-        if column in available_columns
-    ]
-
-    for column in lambda_columns:
-        invalid = connection.execute(
-            f"""
-            SELECT match_id
-            FROM match_predictions
-            WHERE model_version = ?
-              AND match_id IN ({placeholders})
-              AND (
-                  {column} IS NULL
-                  OR {column} <= 0
-              )
-            """,
-            [
-                model_version,
-                *match_ids,
-            ],
-        ).fetchall()
-
-        if invalid:
-            invalid_ids = ", ".join(
-                str(row["match_id"])
-                for row in invalid
-            )
-
-            raise PredictionStorageError(
-                f"Valores inválidos na coluna "
-                f"{column}: {invalid_ids}"
-            )
-
-    if (
-        "prediction_timestamp"
-        in available_columns
-    ):
-        missing_timestamps = (
-            connection.execute(
-                f"""
-                SELECT match_id
+        if supports_stages:
+            stored = connection.execute(
+                """
+                SELECT
+                    prediction_id,
+                    prediction_stage,
+                    prediction_version,
+                    is_current
                 FROM match_predictions
-                WHERE model_version = ?
-                  AND match_id IN ({placeholders})
-                  AND (
-                      prediction_timestamp IS NULL
-                      OR TRIM(
-                          prediction_timestamp
-                      ) = ''
-                  )
+                WHERE match_id = ?
+                  AND model_version = ?
+                  AND prediction_stage = ?
+                  AND is_current = 1
+                ORDER BY
+                    prediction_version DESC
+                LIMIT 1
                 """,
-                [
+                (
+                    match_id,
                     model_version,
-                    *match_ids,
-                ],
-            ).fetchall()
-        )
+                    stage,
+                ),
+            ).fetchone()
 
-        if missing_timestamps:
-            invalid_ids = ", ".join(
-                str(row["match_id"])
-                for row in missing_timestamps
-            )
+        else:
+            stored = connection.execute(
+                """
+                SELECT prediction_id
+                FROM match_predictions
+                WHERE match_id = ?
+                  AND model_version = ?
+                LIMIT 1
+                """,
+                (
+                    match_id,
+                    model_version,
+                ),
+            ).fetchone()
 
+        if stored is None:
             raise PredictionStorageError(
-                "Existem previsões sem "
-                "prediction_timestamp: "
-                f"{invalid_ids}"
+                "Previsão não encontrada após "
+                "gravação: "
+                f"match_id={match_id}; "
+                f"model_version={model_version}; "
+                f"prediction_stage={stage}."
             )
 
 
