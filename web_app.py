@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, send_from_directory
 
 from src.services.final_result_service import run_final_result_update
 
@@ -154,8 +154,33 @@ HTML_TEMPLATE = """
 
         .probability strong {
             display: block;
-            margin-top: 6px;
             font-size: 21px;
+        }
+
+        .probability-value {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            min-height: 48px;
+            margin-top: 6px;
+        }
+
+        .team-logo {
+            width: 42px;
+            height: 42px;
+            flex: 0 0 42px;
+            object-fit: contain;
+            object-position: center;
+            background: transparent;
+        }
+
+        .probability-value.home {
+            justify-content: center;
+        }
+
+        .probability-value.away {
+            justify-content: center;
         }
 
         .prediction {
@@ -289,6 +314,25 @@ HTML_TEMPLATE = """
                 gap: 8px;
             }
 
+            .probability {
+                padding: 11px 7px;
+            }
+
+            .probability-value {
+                gap: 5px;
+                min-height: 38px;
+            }
+
+            .team-logo {
+                width: 32px;
+                height: 32px;
+                flex-basis: 32px;
+            }
+
+            .probability strong {
+                font-size: 17px;
+            }
+
             .match-card {
                 padding: 17px;
             }
@@ -332,15 +376,35 @@ HTML_TEMPLATE = """
                     <div class="probabilities">
                         <div class="probability">
                             <span>Vitória casa</span>
-                            <strong>{{ "%.2f"|format(match.home_probability * 100) }}%</strong>
+                            <div class="probability-value home">
+                                <img
+                                    class="team-logo"
+                                    src="{{ match.home_logo }}"
+                                    alt="Símbolo {{ match.home_team }}"
+                                    title="{{ match.home_team }}"
+                                    loading="lazy"
+                                >
+                                <strong>{{ "%.2f"|format(match.home_probability * 100) }}%</strong>
+                            </div>
                         </div>
                         <div class="probability">
                             <span>Empate</span>
-                            <strong>{{ "%.2f"|format(match.draw_probability * 100) }}%</strong>
+                            <div class="probability-value">
+                                <strong>{{ "%.2f"|format(match.draw_probability * 100) }}%</strong>
+                            </div>
                         </div>
                         <div class="probability">
                             <span>Vitória fora</span>
-                            <strong>{{ "%.2f"|format(match.away_probability * 100) }}%</strong>
+                            <div class="probability-value away">
+                                <strong>{{ "%.2f"|format(match.away_probability * 100) }}%</strong>
+                                <img
+                                    class="team-logo"
+                                    src="{{ match.away_logo }}"
+                                    alt="Símbolo {{ match.away_team }}"
+                                    title="{{ match.away_team }}"
+                                    loading="lazy"
+                                >
+                            </div>
                         </div>
                     </div>
 
@@ -553,7 +617,9 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                 m.home_goals,
                 m.away_goals,
                 m.updated_at AS result_updated_at,
+                home.team_id AS home_team_id,
                 home.team_name AS home_team,
+                away.team_id AS away_team_id,
                 away.team_name AS away_team,
                 p.home_win_probability,
                 p.draw_probability,
@@ -622,6 +688,14 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
             {
                 "home_team": row["home_team"],
                 "away_team": row["away_team"],
+                "home_team_id": row["home_team_id"],
+                "away_team_id": row["away_team_id"],
+                "home_logo": (
+                    f"/assets/team_logos/{row['home_team_id']}.png"
+                ),
+                "away_logo": (
+                    f"/assets/team_logos/{row['away_team_id']}.png"
+                ),
                 "display_date": display_date,
                 "home_probability": home_probability,
                 "draw_probability": draw_probability,
@@ -637,6 +711,14 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
         )
 
     return round_number, matches
+
+
+@app.route("/assets/<path:filename>")
+def assets(filename):
+    return send_from_directory(
+        BASE_DIR / "docs" / "assets",
+        filename,
+    )
 
 
 @app.route("/")

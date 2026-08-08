@@ -48,6 +48,14 @@ def generate_public_site() -> Path:
             updated_at=updated_at,
         )
 
+        # O Flask local usa /assets/..., mas o GitHub Pages publica
+        # o site dentro da pasta do repositório. No HTML estático,
+        # os caminhos devem ser relativos ao docs/index.html.
+        html = html.replace(
+            'src="/assets/',
+            'src="assets/',
+        )
+
     OUTPUT_PATH.parent.mkdir(
         parents=True,
         exist_ok=True,
