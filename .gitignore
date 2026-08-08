@@ -29,3 +29,4 @@ reports/validation/Validation_Report_*.xlsx
 data/backups/
 *.backup_before_*
 *_BACKUP_BEFORE_*
+!database/footwin_sports.db
