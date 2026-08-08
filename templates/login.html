@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>Entrar | FOOTWIN SPORTS</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #ffffff;
+            background:
+                linear-gradient(
+                    rgba(2, 8, 20, 0.82),
+                    rgba(2, 8, 20, 0.92)
+                ),
+                url("/assets/footwin-background.jpg")
+                center center / cover fixed no-repeat;
+        }
+
+        .auth-card {
+            width: 100%;
+            max-width: 430px;
+            padding: 38px 34px;
+            border: 1px solid rgba(0, 255, 255, 0.42);
+            border-radius: 22px;
+            background: rgba(5, 15, 32, 0.91);
+            box-shadow:
+                0 0 22px rgba(0, 255, 255, 0.18),
+                0 20px 55px rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(12px);
+        }
+
+        .brand {
+            margin-bottom: 8px;
+            text-align: center;
+            font-size: 29px;
+            font-weight: 900;
+            letter-spacing: 1.5px;
+        }
+
+        .brand span {
+            color: #00f5ff;
+            text-shadow: 0 0 12px rgba(0, 245, 255, 0.75);
+        }
+
+        .subtitle {
+            margin: 0 0 28px;
+            text-align: center;
+            color: #aebdd2;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .field {
+            margin-bottom: 18px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #dce8f5;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px 15px;
+            border: 1px solid rgba(159, 179, 202, 0.35);
+            border-radius: 11px;
+            outline: none;
+            color: #ffffff;
+            background: rgba(12, 27, 48, 0.9);
+            font-size: 15px;
+            transition: 0.2s ease;
+        }
+
+        input:focus {
+            border-color: #00f5ff;
+            box-shadow: 0 0 0 3px rgba(0, 245, 255, 0.12);
+        }
+
+        button {
+            width: 100%;
+            margin-top: 4px;
+            padding: 14px;
+            border: 0;
+            border-radius: 11px;
+            cursor: pointer;
+            color: #001018;
+            background: linear-gradient(135deg, #00f5ff, #54ff9f);
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: 0.4px;
+            box-shadow: 0 0 18px rgba(0, 245, 255, 0.28);
+        }
+
+        button:hover {
+            filter: brightness(1.08);
+        }
+
+        .message {
+            margin-bottom: 18px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .message-error {
+            border: 1px solid rgba(255, 73, 102, 0.55);
+            color: #ffb7c2;
+            background: rgba(122, 14, 36, 0.34);
+        }
+
+        .message-success {
+            border: 1px solid rgba(76, 255, 154, 0.55);
+            color: #b9ffd7;
+            background: rgba(10, 93, 53, 0.34);
+        }
+
+        .register-link {
+            margin-top: 22px;
+            text-align: center;
+            color: #aebdd2;
+            font-size: 14px;
+        }
+
+        .register-link a {
+            color: #00f5ff;
+            font-weight: 800;
+            text-decoration: none;
+        }
+
+        .register-link a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <main class="auth-card">
+        <div class="brand">
+            FOOTWIN <span>SPORTS</span>
+        </div>
+
+        <p class="subtitle">
+            Inicia sessão para consultar prognósticos,
+            jogos anteriores e próximos jogos.
+        </p>
+
+        {% if error %}
+            <div class="message message-error">
+                {{ error }}
+            </div>
+        {% endif %}
+
+        {% if success %}
+            <div class="message message-success">
+                {{ success }}
+            </div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('login') }}">
+            <div class="field">
+                <label for="email">Endereço de email</label>
+                <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autocomplete="email"
+                    value="{{ email or '' }}"
+                    required
+                >
+            </div>
+
+            <div class="field">
+                <label for="password">Palavra-passe</label>
+                <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autocomplete="current-password"
+                    required
+                >
+            </div>
+
+            <button type="submit">
+                Entrar
+            </button>
+        </form>
+
+        <div class="register-link">
+            Ainda não tens conta?
+            <a href="{{ url_for('register') }}">
+                Criar conta
+            </a>
+        </div>
+    </main>
+</body>
+</html>

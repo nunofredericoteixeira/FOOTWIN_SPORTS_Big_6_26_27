@@ -24,3 +24,8 @@ reports/validation/Validation_Report_*.xlsx
 # SQLite runtime files
 *.db-wal
 *.db-shm
+
+# Backups locais
+data/backups/
+*.backup_before_*
+*_BACKUP_BEFORE_*

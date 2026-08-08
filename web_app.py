@@ -1,17 +1,42 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 
-from flask import Flask, render_template_string, send_from_directory
+from dotenv import load_dotenv
+from flask import (
+    Flask,
+    redirect,
+    render_template,
+    render_template_string,
+    request,
+    send_from_directory,
+    session,
+    url_for,
+)
 
 from src.services.final_result_service import run_final_result_update
+from src.services.supabase_auth_service import (
+    SupabaseAuthError,
+    login_user,
+    logout_user,
+    register_user,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "database" / "footwin_sports.db"
 
+load_dotenv(dotenv_path=BASE_DIR / ".env")
+
 app = Flask(__name__)
+app.secret_key = os.environ["FLASK_SECRET_KEY"]
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
 
 HTML_TEMPLATE = """
 <!doctype html>
@@ -713,6 +738,177 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
     return round_number, matches
 
 
+
+def login_required(view_function):
+    @wraps(view_function)
+    def wrapped_view(*args, **kwargs):
+        if not session.get("access_token"):
+            return redirect(url_for("login"))
+
+        return view_function(*args, **kwargs)
+
+    return wrapped_view
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("access_token"):
+        return redirect(url_for("predictions"))
+
+    error = None
+    success = None
+    email = ""
+
+    if request.args.get("registered") == "1":
+        success = (
+            "Conta criada com sucesso. "
+            "Já podes iniciar sessão."
+        )
+
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+
+        if not email or not password:
+            error = "Preenche o email e a palavra-passe."
+        else:
+            try:
+                auth_data = login_user(
+                    email=email,
+                    password=password,
+                )
+
+                access_token = auth_data.get("access_token")
+                refresh_token = auth_data.get("refresh_token")
+                user = auth_data.get("user") or {}
+
+                if not access_token:
+                    raise SupabaseAuthError(
+                        "O Supabase não devolveu uma sessão válida."
+                    )
+
+                session.clear()
+                session["access_token"] = access_token
+                session["refresh_token"] = refresh_token
+                session["user_id"] = user.get("id")
+                session["user_email"] = user.get("email", email)
+
+                return redirect(url_for("predictions"))
+
+            except SupabaseAuthError as exc:
+                message = str(exc).lower()
+
+                if "invalid login credentials" in message:
+                    error = "Email ou palavra-passe incorretos."
+                elif "email not confirmed" in message:
+                    error = (
+                        "Confirma primeiro o teu email "
+                        "antes de iniciares sessão."
+                    )
+                else:
+                    error = f"Não foi possível iniciar sessão: {exc}"
+
+            except Exception as exc:
+                error = (
+                    "Ocorreu um erro ao contactar "
+                    f"o serviço de autenticação: {exc}"
+                )
+
+    return render_template(
+        "login.html",
+        error=error,
+        success=success,
+        email=email,
+    )
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if session.get("access_token"):
+        return redirect(url_for("predictions"))
+
+    error = None
+    name = ""
+    email = ""
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        password_confirmation = request.form.get(
+            "password_confirmation",
+            "",
+        )
+
+        if len(name) < 2:
+            error = "Indica um nome válido."
+        elif not email:
+            error = "Indica um endereço de email válido."
+        elif len(password) < 8:
+            error = (
+                "A palavra-passe deve ter "
+                "pelo menos 8 caracteres."
+            )
+        elif password != password_confirmation:
+            error = "As palavras-passe não coincidem."
+        else:
+            try:
+                register_user(
+                    name=name,
+                    email=email,
+                    password=password,
+                )
+
+                return redirect(
+                    url_for(
+                        "login",
+                        registered="1",
+                    )
+                )
+
+            except SupabaseAuthError as exc:
+                message = str(exc).lower()
+
+                if (
+                    "already registered" in message
+                    or "user already registered" in message
+                ):
+                    error = "Já existe uma conta com este email."
+                else:
+                    error = f"Não foi possível criar a conta: {exc}"
+
+            except Exception as exc:
+                error = (
+                    "Ocorreu um erro ao contactar "
+                    f"o serviço de autenticação: {exc}"
+                )
+
+    return render_template(
+        "register.html",
+        error=error,
+        name=name,
+        email=email,
+    )
+
+
+@app.route("/logout")
+def logout():
+    access_token = session.get("access_token")
+
+    if access_token:
+        try:
+            logout_user(access_token)
+        except Exception as exc:
+            print(
+                "AVISO: não foi possível terminar "
+                f"a sessão no Supabase: {exc}"
+            )
+
+    session.clear()
+
+    return redirect(url_for("login"))
+
+
 @app.route("/assets/<path:filename>")
 def assets(filename):
     return send_from_directory(
@@ -722,6 +918,7 @@ def assets(filename):
 
 
 @app.route("/")
+@login_required
 def predictions():
     try:
         run_final_result_update(
