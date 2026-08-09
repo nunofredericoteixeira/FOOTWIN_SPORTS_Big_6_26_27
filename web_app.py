@@ -40,6 +40,41 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
 )
 
+
+def initialize_betting_tables() -> None:
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(DATABASE_PATH) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS user_bankrolls (
+                user_id TEXT PRIMARY KEY,
+                initial_bankroll REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS user_bets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                match_id TEXT NOT NULL,
+                odd REAL,
+                stake REAL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                prudent_prediction TEXT,
+                UNIQUE (user_id, match_id),
+                FOREIGN KEY (match_id) REFERENCES matches(match_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_user_bets_user_id
+            ON user_bets(user_id);
+            """
+        )
+
+
+initialize_betting_tables()
+
 HTML_TEMPLATE = """
 <!doctype html>
 <html lang="pt">
