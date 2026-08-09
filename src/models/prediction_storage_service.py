@@ -358,6 +358,7 @@ def load_matches_for_prediction(
             "m.status IN "
             "('SCHEDULED', 'POSTPONED')"
         ),
+        "m.match_date > CURRENT_TIMESTAMP",
     ]
 
     parameters: list[Any] = [
@@ -790,6 +791,38 @@ def upsert_prediction(
     stage = str(
         filtered_record["prediction_stage"]
     )
+
+    if stage == "PRE_MATCH":
+        confirmed_lineup = connection.execute(
+            """
+            SELECT prediction_id
+            FROM match_predictions
+            WHERE match_id = ?
+              AND model_version = ?
+              AND prediction_stage = 'CONFIRMED_LINEUP'
+              AND is_current = 1
+            ORDER BY
+                prediction_version DESC,
+                created_at DESC
+            LIMIT 1
+            """,
+            (
+                match_id,
+                model_version,
+            ),
+        ).fetchone()
+
+        if confirmed_lineup is not None:
+            logger.info(
+                "PRE_MATCH congelado | "
+                "match_id=%s | modelo=%s | "
+                "confirmed_lineup=%s",
+                match_id,
+                model_version,
+                confirmed_lineup["prediction_id"],
+            )
+
+            return "FROZEN"
 
     current = connection.execute(
         """
