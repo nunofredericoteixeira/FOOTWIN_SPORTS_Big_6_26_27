@@ -72,6 +72,33 @@ def initialize_betting_tables() -> None:
             """
         )
 
+        prediction_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(match_predictions)"
+            ).fetchall()
+        }
+
+        required_prediction_columns = {
+            "prediction_stage": "TEXT NOT NULL DEFAULT 'PRE_MATCH'",
+            "prediction_version": "INTEGER NOT NULL DEFAULT 1",
+            "parent_prediction_id": "TEXT",
+            "lineup_id": "TEXT",
+            "lineup_hash": "TEXT",
+            "lineup_confirmed": "INTEGER NOT NULL DEFAULT 0",
+            "lineup_data_quality": "TEXT NOT NULL DEFAULT 'NOT_APPLICABLE'",
+            "is_current": "INTEGER NOT NULL DEFAULT 1",
+            "input_snapshot_json": "TEXT",
+            "superseded_at": "TEXT",
+        }
+
+        for column_name, column_definition in required_prediction_columns.items():
+            if column_name not in prediction_columns:
+                connection.execute(
+                    f"ALTER TABLE match_predictions "
+                    f"ADD COLUMN {column_name} {column_definition}"
+                )
+
 
 initialize_betting_tables()
 
