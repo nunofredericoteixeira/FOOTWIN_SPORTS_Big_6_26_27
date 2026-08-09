@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -9,6 +10,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from flask import (
     Flask,
+    jsonify,
     redirect,
     render_template,
     render_template_string,
@@ -315,7 +317,239 @@ HTML_TEMPLATE = """
             color: var(--muted);
         }
 
-        .empty {
+        .betting-fields {
+        display: grid;
+        grid-template-columns:
+            minmax(120px, 0.7fr)
+            minmax(140px, 0.9fr)
+            minmax(150px, 1fr);
+        gap: 12px;
+        align-items: end;
+        margin: 16px 0;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        border-radius: 14px;
+        background: rgba(0, 0, 0, 0.22);
+    }
+
+    .betting-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .betting-field label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .betting-field > input,
+    .bet-money-input {
+        min-height: 44px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 11px;
+        background: rgba(0, 0, 0, 0.28);
+    }
+
+    .betting-field > input {
+        width: 100%;
+        padding: 10px 12px;
+        outline: 0;
+        color: #ffffff;
+        font: inherit;
+        font-weight: 800;
+    }
+
+    .betting-field > input:focus,
+    .bet-money-input:focus-within {
+        border-color: var(--accent);
+        box-shadow: 0 0 10px rgba(0, 255, 136, 0.20);
+    }
+
+    .bet-money-input {
+        display: flex;
+        align-items: center;
+        overflow: hidden;
+    }
+
+    .bet-money-input span {
+        padding-left: 12px;
+        color: var(--accent);
+        font-weight: 900;
+    }
+
+    .bet-money-input input {
+        width: 100%;
+        min-width: 0;
+        padding: 10px 12px 10px 7px;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: #ffffff;
+        font: inherit;
+        font-weight: 800;
+    }
+
+    .betting-field input:disabled {
+        cursor: not-allowed;
+        opacity: 0.58;
+    }
+
+    .bet-status {
+        display: flex;
+        min-height: 44px;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 13px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 11px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 900;
+        text-align: center;
+    }
+
+    .bet-status.won {
+        color: #00ff88;
+        border-color: rgba(0, 255, 136, 0.48);
+        background: rgba(0, 255, 136, 0.08);
+        box-shadow: 0 0 12px rgba(0, 255, 136, 0.16);
+    }
+
+    .bet-status.lost {
+        color: #ff6b6b;
+        border-color: rgba(255, 65, 65, 0.48);
+        background: rgba(255, 55, 55, 0.08);
+        box-shadow: 0 0 12px rgba(255, 55, 55, 0.14);
+    }
+
+    .bankroll-panel {
+        display: grid;
+        grid-template-columns:
+            minmax(180px, 1fr)
+            minmax(180px, 1fr)
+            auto;
+        gap: 18px;
+        align-items: end;
+        margin: 0 0 24px;
+        padding: 20px;
+        border: 1px solid rgba(0, 255, 136, 0.32);
+        border-radius: 18px;
+        background: rgba(4, 20, 15, 0.88);
+        box-shadow:
+            0 0 20px rgba(0, 255, 136, 0.10),
+            inset 0 0 20px rgba(0, 255, 136, 0.04);
+        backdrop-filter: blur(8px);
+    }
+
+    .bankroll-field,
+    .bankroll-balance {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+    }
+
+    .bankroll-field label,
+    .bankroll-balance span {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .money-input {
+        display: flex;
+        min-height: 48px;
+        align-items: center;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.30);
+    }
+
+    .money-input:focus-within {
+        border-color: var(--accent);
+        box-shadow: 0 0 12px rgba(0, 255, 136, 0.22);
+    }
+
+    .money-input span {
+        padding-left: 15px;
+        color: var(--accent);
+        font-size: 18px;
+        font-weight: 900;
+    }
+
+    .money-input input {
+        width: 100%;
+        min-width: 0;
+        padding: 12px 14px 12px 8px;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: #ffffff;
+        font: inherit;
+        font-size: 18px;
+        font-weight: 800;
+    }
+
+    .bankroll-balance strong {
+        display: flex;
+        min-height: 48px;
+        align-items: center;
+        color: var(--accent);
+        font-size: 24px;
+        font-weight: 900;
+        text-shadow: 0 0 12px rgba(0, 255, 136, 0.38);
+    }
+
+    #save-betting-state {
+        min-height: 48px;
+        padding: 11px 20px;
+        border: 0;
+        border-radius: 12px;
+        background: var(--accent);
+        color: #042116;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 900;
+        transition:
+            transform 0.15s ease,
+            box-shadow 0.15s ease,
+            opacity 0.15s ease;
+    }
+
+    #save-betting-state:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 0 16px rgba(0, 255, 136, 0.42);
+    }
+
+    #save-betting-state:disabled {
+        cursor: wait;
+        opacity: 0.65;
+        transform: none;
+    }
+
+    #bankroll-message {
+        grid-column: 1 / -1;
+        min-height: 18px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+    }
+
+    #bankroll-message.success {
+        color: var(--accent);
+    }
+
+    #bankroll-message.error {
+        color: #ff6b6b;
+    }
+
+    .empty {
             padding: 40px;
             text-align: center;
             background: var(--panel);
@@ -333,6 +567,20 @@ HTML_TEMPLATE = """
 
             .summary {
                 grid-template-columns: 1fr;
+            }
+
+            .bankroll-panel {
+                grid-template-columns: 1fr;
+                align-items: stretch;
+            }
+
+            .betting-fields {
+                grid-template-columns: 1fr;
+                align-items: stretch;
+            }
+
+            #bankroll-message {
+                grid-column: auto;
             }
 
             .probabilities {
@@ -390,6 +638,59 @@ HTML_TEMPLATE = """
             </article>
         </section>
 
+        <section class="bankroll-panel">
+            <div class="bankroll-field">
+                <label for="initial-bankroll">
+                    Carteira inicial
+                </label>
+                <div class="money-input">
+                    <span>€</span>
+                    <input
+                        id="initial-bankroll"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="{{ '%.2f'|format(initial_bankroll) }}"
+                        inputmode="decimal"
+                    >
+                </div>
+            </div>
+
+            <div class="bankroll-field">
+                <label for="stake-mode">
+                    Modo da aposta
+                </label>
+                <select id="stake-mode">
+                    <option value="fixed">
+                        Valor fixo (€)
+                    </option>
+                    <option value="percentage">
+                        Percentagem da carteira (%)
+                    </option>
+                </select>
+            </div>
+
+            <div class="bankroll-balance">
+                <span>Saldo atual</span>
+                <strong id="current-bankroll">
+                    {{ "%.2f"|format(current_bankroll) }} €
+                </strong>
+            </div>
+
+            <button
+                id="save-betting-state"
+                type="button"
+            >
+                Guardar carteira
+            </button>
+
+            <div
+                id="bankroll-message"
+                role="status"
+                aria-live="polite"
+            ></div>
+        </section>
+
         <main class="matches">
             {% for match in matches %}
                 <article class="match-card">
@@ -433,6 +734,56 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
+                    <div
+                        class="betting-fields"
+                        data-match-id="{{ match.match_id }}"
+                    >
+                        <div class="betting-field">
+                            <label for="odd-{{ match.match_id }}">
+                                Odd
+                            </label>
+                            <input
+                                id="odd-{{ match.match_id }}"
+                                class="bet-odd"
+                                type="number"
+                                min="1.01"
+                                step="0.01"
+                                inputmode="decimal"
+                                value="{% if match.bet_odd is not none %}{{ '%.2f'|format(match.bet_odd) }}{% endif %}"
+                            >
+                        </div>
+
+                        <div class="betting-field">
+                            <label for="stake-{{ match.match_id }}">
+                                Aposta
+                            </label>
+                            <div class="bet-money-input">
+                                <span class="bet-stake-symbol">€</span>
+                                <input
+                                    id="stake-{{ match.match_id }}"
+                                    class="bet-stake"
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    inputmode="decimal"
+                                    value="{% if match.bet_stake is not none %}{{ '%.2f'|format(match.bet_stake) }}{% endif %}"
+                                    >
+                            </div>
+                        </div>
+
+                        <div class="bet-status {{ match.bet_status }}">
+                            {% if match.bet_status == "won" %}
+                                Aposta ganha
+                            {% elif match.bet_status == "lost" %}
+                                Aposta perdida
+                            {% elif match.bet_odd and match.bet_stake %}
+                                Aguardar resultado
+                            {% else %}
+                                Sem aposta
+                            {% endif %}
+                        </div>
+                    </div>
+
                     <div class="prediction {{ match.result_class }}">
                         <div>
                             <div class="subtitle">Prognóstico prudente</div>
@@ -457,6 +808,190 @@ HTML_TEMPLATE = """
         <div class="empty">Não existem prognósticos disponíveis para a próxima jornada.</div>
     {% endif %}
 </div>
+<script>
+    (() => {
+        const saveButton = document.getElementById(
+            "save-betting-state"
+        );
+        const bankrollInput = document.getElementById(
+            "initial-bankroll"
+        );
+        const currentBankroll = document.getElementById(
+            "current-bankroll"
+        );
+        const message = document.getElementById(
+            "bankroll-message"
+        );
+        const stakeMode = document.getElementById(
+            "stake-mode"
+        );
+
+        if (
+            !saveButton
+            || !bankrollInput
+            || !currentBankroll
+            || !message
+            || !stakeMode
+        ) {
+            return;
+        }
+
+        const setMessage = (text, type = "") => {
+            message.textContent = text;
+            message.className = type;
+        };
+
+        const parseOptionalNumber = (value) => {
+            const normalized = value.trim();
+
+            if (!normalized) {
+                return null;
+            }
+
+            const number = Number(normalized);
+
+            return Number.isFinite(number)
+                ? number
+                : null;
+        };
+
+        const updateStakeMode = () => {
+            const percentageMode =
+                stakeMode.value === "percentage";
+
+            document.querySelectorAll(
+                ".bet-stake-symbol"
+            ).forEach((symbol) => {
+                symbol.textContent =
+                    percentageMode ? "%" : "€";
+            });
+
+            document.querySelectorAll(
+                ".bet-stake"
+            ).forEach((input) => {
+                if (percentageMode) {
+                    input.max = "100";
+                    input.placeholder = "Percentagem";
+                } else {
+                    input.removeAttribute("max");
+                    input.placeholder = "Valor";
+                }
+            });
+        };
+
+        stakeMode.addEventListener(
+            "change",
+            updateStakeMode
+        );
+
+        updateStakeMode();
+
+        saveButton.addEventListener("click", async () => {
+            const initialBankroll = Number(
+                bankrollInput.value
+            );
+
+            const bets = Array.from(
+                document.querySelectorAll(
+                    ".betting-fields"
+                )
+            ).map((container) => {
+                const oddInput = container.querySelector(
+                    ".bet-odd"
+                );
+                const stakeInput = container.querySelector(
+                    ".bet-stake"
+                );
+
+                return {
+                    match_id:
+                        container.dataset.matchId,
+                    odd: parseOptionalNumber(
+                        oddInput?.value || ""
+                    ),
+                    stake: (() => {
+                        const enteredStake =
+                            parseOptionalNumber(
+                                stakeInput?.value || ""
+                            );
+
+                        if (enteredStake === null) {
+                            return null;
+                        }
+
+                        if (
+                            stakeMode.value
+                            === "percentage"
+                        ) {
+                            return Number(
+                                (
+                                    initialBankroll
+                                    * enteredStake
+                                    / 100
+                                ).toFixed(2)
+                            );
+                        }
+
+                        return enteredStake;
+                    })(),
+                };
+            });
+
+            saveButton.disabled = true;
+            setMessage("A guardar...");
+
+            try {
+                const response = await fetch(
+                    "/api/betting-state",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+                        },
+                        body: JSON.stringify({
+                            initial_bankroll:
+                                initialBankroll,
+                            bets,
+                        }),
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(
+                        data.error
+                        || "Não foi possível guardar."
+                    );
+                }
+
+                bankrollInput.value = Number(
+                    data.initial_bankroll
+                ).toFixed(2);
+
+                currentBankroll.textContent = `${
+                    Number(
+                        data.current_bankroll
+                    ).toFixed(2)
+                } €`;
+
+                setMessage(
+                    "Carteira e apostas guardadas.",
+                    "success"
+                );
+            } catch (error) {
+                setMessage(
+                    error.message
+                    || "Erro ao guardar a carteira.",
+                    "error"
+                );
+            } finally {
+                saveButton.disabled = false;
+            }
+        });
+    })();
+</script>
 </body>
 </html>
 """
@@ -725,6 +1260,7 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
 
         matches.append(
             {
+                "match_id": str(row["match_id"]),
                 "home_team": row["home_team"],
                 "away_team": row["away_team"],
                 "home_team_id": row["home_team_id"],
@@ -761,6 +1297,104 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
 
     return round_number, matches
 
+
+
+
+def get_user_betting_state(
+    user_id: str,
+    matches: list[dict],
+) -> dict:
+    with sqlite3.connect(DATABASE_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+
+        bankroll_row = connection.execute(
+            """
+            SELECT initial_bankroll
+            FROM user_bankrolls
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+
+        initial_bankroll = (
+            float(bankroll_row["initial_bankroll"])
+            if bankroll_row is not None
+            else 0.0
+        )
+
+        bet_rows = connection.execute(
+            """
+            SELECT match_id, odd, stake, prudent_prediction
+            FROM user_bets
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchall()
+
+    bets_by_match = {
+        str(row["match_id"]): {
+            "odd": (
+                float(row["odd"])
+                if row["odd"] is not None
+                else None
+            ),
+            "stake": (
+                float(row["stake"])
+                if row["stake"] is not None
+                else None
+            ),
+            "prudent_prediction": row["prudent_prediction"],
+        }
+        for row in bet_rows
+    }
+
+    current_bankroll = initial_bankroll
+
+    for match in matches:
+        bet = bets_by_match.get(match["match_id"], {})
+        odd = bet.get("odd")
+        stake = bet.get("stake")
+        bet_prudent = (
+            bet.get("prudent_prediction")
+            or match["prudent"]
+        )
+
+        match["bet_odd"] = odd
+        match["bet_stake"] = stake
+        match["bet_prudent"] = bet_prudent
+        match["bet_status"] = "pending"
+
+        if (
+            odd is None
+            or stake is None
+            or odd <= 0
+            or stake <= 0
+            or not match["actual_score"]
+        ):
+            continue
+
+        home_text, away_text = match["actual_score"].split("-", 1)
+        home_goals = int(home_text)
+        away_goals = int(away_text)
+
+        if home_goals > away_goals:
+            final_result = "1"
+        elif home_goals < away_goals:
+            final_result = "2"
+        else:
+            final_result = "X"
+
+        if final_result in bet_prudent:
+            match["bet_status"] = "won"
+            current_bankroll += (odd - 1.0) * stake
+        else:
+            match["bet_status"] = "lost"
+            current_bankroll -= stake
+
+    return {
+        "initial_bankroll": initial_bankroll,
+        "current_bankroll": current_bankroll,
+    }
 
 
 def login_required(view_function):
@@ -933,6 +1567,208 @@ def logout():
     return redirect(url_for("login"))
 
 
+
+@app.route("/api/betting-state", methods=["POST"])
+@login_required
+def save_betting_state():
+    user_id = session.get("user_id")
+
+    if not user_id:
+        return jsonify(
+            {
+                "ok": False,
+                "error": "Sessão sem utilizador válido.",
+            }
+        ), 401
+
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        initial_bankroll = float(
+            payload.get("initial_bankroll", 0)
+        )
+    except (TypeError, ValueError):
+        return jsonify(
+            {
+                "ok": False,
+                "error": "A carteira inicial é inválida.",
+            }
+        ), 400
+
+    if (
+        not math.isfinite(initial_bankroll)
+        or initial_bankroll < 0
+    ):
+        return jsonify(
+            {
+                "ok": False,
+                "error": (
+                    "A carteira inicial deve ser "
+                    "um valor igual ou superior a zero."
+                ),
+            }
+        ), 400
+
+    bets_payload = payload.get("bets", [])
+
+    if not isinstance(bets_payload, list):
+        return jsonify(
+            {
+                "ok": False,
+                "error": "A lista de apostas é inválida.",
+            }
+        ), 400
+
+    _, current_matches = get_next_round_matches()
+    matches_by_id = {
+        match["match_id"]: match
+        for match in current_matches
+    }
+
+    validated_bets = []
+
+    for item in bets_payload:
+        if not isinstance(item, dict):
+            continue
+
+        match_id = str(
+            item.get("match_id") or ""
+        ).strip()
+
+        if not match_id:
+            continue
+
+        match = matches_by_id.get(match_id)
+
+        if match is None:
+            continue
+
+        odd_raw = item.get("odd")
+        stake_raw = item.get("stake")
+
+        if odd_raw in (None, "") and stake_raw in (None, ""):
+            validated_bets.append(
+                {
+                    "match_id": match_id,
+                    "odd": None,
+                    "stake": None,
+                    "prudent_prediction": match["prudent"],
+                }
+            )
+            continue
+
+        try:
+            odd = float(odd_raw)
+            stake = float(stake_raw)
+        except (TypeError, ValueError):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        "Existe uma odd ou aposta inválida."
+                    ),
+                }
+            ), 400
+
+        if (
+            not math.isfinite(odd)
+            or not math.isfinite(stake)
+            or odd <= 1
+            or stake <= 0
+        ):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        "A odd deve ser superior a 1 "
+                        "e a aposta superior a zero."
+                    ),
+                }
+            ), 400
+
+        validated_bets.append(
+            {
+                "match_id": match_id,
+                "odd": odd,
+                "stake": stake,
+                "prudent_prediction": match["prudent"],
+            }
+        )
+
+    with sqlite3.connect(DATABASE_PATH) as connection:
+        connection.execute(
+            """
+            INSERT INTO user_bankrolls (
+                user_id,
+                initial_bankroll,
+                updated_at
+            )
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id) DO UPDATE SET
+                initial_bankroll = excluded.initial_bankroll,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                user_id,
+                initial_bankroll,
+            ),
+        )
+
+        for bet in validated_bets:
+            connection.execute(
+                """
+                INSERT INTO user_bets (
+                    user_id,
+                    match_id,
+                    odd,
+                    stake,
+                    prudent_prediction,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id, match_id) DO UPDATE SET
+                    odd = excluded.odd,
+                    stake = excluded.stake,
+                    prudent_prediction = (
+                        CASE
+                            WHEN user_bets.prudent_prediction
+                                IS NOT NULL
+                            THEN user_bets.prudent_prediction
+                            ELSE excluded.prudent_prediction
+                        END
+                    ),
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    user_id,
+                    bet["match_id"],
+                    bet["odd"],
+                    bet["stake"],
+                    bet["prudent_prediction"],
+                ),
+            )
+
+        connection.commit()
+
+    _, refreshed_matches = get_next_round_matches()
+    betting_state = get_user_betting_state(
+        user_id=user_id,
+        matches=refreshed_matches,
+    )
+
+    return jsonify(
+        {
+            "ok": True,
+            "initial_bankroll": (
+                betting_state["initial_bankroll"]
+            ),
+            "current_bankroll": (
+                betting_state["current_bankroll"]
+            ),
+        }
+    )
+
+
 @app.route("/assets/<path:filename>")
 def assets(filename):
     return send_from_directory(
@@ -958,6 +1794,13 @@ def predictions():
         )
 
     round_number, matches = get_next_round_matches()
+
+    user_id = session.get("user_id")
+    betting_state = get_user_betting_state(
+        user_id=user_id,
+        matches=matches,
+    )
+
     key = ", ".join(match["prudent"] for match in matches)
 
     timestamps = [
@@ -973,6 +1816,8 @@ def predictions():
         round_number=round_number,
         key=key,
         updated_at=updated_at,
+        initial_bankroll=betting_state["initial_bankroll"],
+        current_bankroll=betting_state["current_bankroll"],
     )
 
 
