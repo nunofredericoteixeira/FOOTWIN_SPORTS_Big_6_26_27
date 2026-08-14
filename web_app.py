@@ -6,6 +6,19 @@ import sqlite3
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+
+LEAGUE_METADATA = {
+    "POR1": {"name": "Portugal", "timezone": "Europe/Lisbon", "flag": "🇵🇹"},
+    "ENG1": {"name": "Inglaterra", "timezone": "Europe/London", "flag": "🏴"},
+    "ESP1": {"name": "Espanha", "timezone": "Europe/Madrid", "flag": "🇪🇸"},
+    "FRA1": {"name": "França", "timezone": "Europe/Paris", "flag": "🇫🇷"},
+    "ITA1": {"name": "Itália", "timezone": "Europe/Rome", "flag": "🇮🇹"},
+    "GER1": {"name": "Alemanha", "timezone": "Europe/Berlin", "flag": "🇩🇪"},
+}
+
+SEASON_LABEL = "2026/27"
 
 from dotenv import load_dotenv
 from flask import (
@@ -163,7 +176,7 @@ HTML_TEMPLATE = """
 
         .summary {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 16px;
             margin-bottom: 24px;
         }
@@ -180,18 +193,58 @@ HTML_TEMPLATE = """
             padding: 20px;
         }
 
-        .summary-card span {
+        .summary-card > span {
             display: block;
+            margin-bottom: 12px;
             color: var(--muted);
             font-size: 13px;
             text-transform: uppercase;
             letter-spacing: 0.9px;
         }
 
-        .summary-card strong {
+        .summary-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .summary-row {
+            display: grid;
+            grid-template-columns: 110px minmax(120px, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            min-height: 42px;
+            padding: 8px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 11px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .summary-league {
+            font-size: 14px;
+            font-weight: 900;
+        }
+
+        .summary-row strong {
             display: block;
-            margin-top: 8px;
-            font-size: 27px;
+            margin: 0;
+            font-size: 15px;
+        }
+
+        .summary-row small {
+            display: block;
+            margin: 0;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            text-align: right;
+        }
+
+        .summary-row small.changed {
+            color: #ffd166;
+        }
+
+        .summary-row small.unchanged {
+            color: var(--accent);
         }
 
         .matches {
@@ -200,6 +253,65 @@ HTML_TEMPLATE = """
         }
 
         .match-card {
+            display: grid;
+            grid-template-columns: minmax(92px, 10%) 1fr;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .league-rail {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 18px 8px;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            background:
+                linear-gradient(
+                    180deg,
+                    rgba(27, 47, 73, 0.96),
+                    rgba(11, 23, 38, 0.98)
+                );
+            text-align: center;
+        }
+
+        .league-flag {
+            font-size: 40px;
+            line-height: 1;
+        }
+
+        .league-flag-image {
+            width: 48px;
+            height: 29px;
+            object-fit: cover;
+            border-radius: 3px;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.18);
+        }
+
+        .summary-flag-image {
+            width: 25px;
+            height: 15px;
+            object-fit: cover;
+            border-radius: 2px;
+            vertical-align: middle;
+            margin-right: 5px;
+        }
+
+        .league-code {
+            font-size: 14px;
+            font-weight: 950;
+            letter-spacing: 0.07em;
+        }
+
+        .league-country {
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .match-content {
             padding: 22px;
         }
 
@@ -489,38 +601,71 @@ HTML_TEMPLATE = """
     }
 
     .bankroll-panel {
+        position: sticky;
+        top: 10px;
+        z-index: 50;
         display: grid;
         grid-template-columns:
-            minmax(180px, 1fr)
-            minmax(180px, 1fr)
+            minmax(190px, 1fr)
+            minmax(135px, 0.58fr)
+            minmax(220px, 1.15fr)
+            minmax(170px, 0.82fr)
             auto;
-        gap: 18px;
+        gap: 14px;
         align-items: end;
         margin: 0 0 24px;
-        padding: 20px;
+        padding: 18px;
         border: 1px solid rgba(0, 255, 136, 0.32);
         border-radius: 18px;
-        background: rgba(4, 20, 15, 0.88);
+        background: rgba(4, 20, 15, 0.96);
         box-shadow:
+            0 10px 30px rgba(0, 0, 0, 0.42),
             0 0 20px rgba(0, 255, 136, 0.10),
             inset 0 0 20px rgba(0, 255, 136, 0.04);
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(10px);
     }
 
     .bankroll-field,
-    .bankroll-balance {
+    .bankroll-balance,
+    .bankroll-accuracy {
         display: flex;
         flex-direction: column;
         gap: 7px;
     }
 
     .bankroll-field label,
-    .bankroll-balance span {
+    .bankroll-balance span,
+    .bankroll-accuracy span {
         color: var(--muted);
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 800;
         letter-spacing: 0.04em;
         text-transform: uppercase;
+    }
+
+    .bankroll-mode select {
+        min-height: 42px;
+        padding: 8px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.22);
+        color: #dbe5ef;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+    }
+
+    .bankroll-accuracy {
+        padding: 10px 13px;
+        border: 1px solid rgba(255, 209, 102, 0.22);
+        border-radius: 12px;
+        background: rgba(255, 209, 102, 0.04);
+    }
+
+    .bankroll-accuracy strong {
+        color: #ffd166;
+        font-size: 27px;
+        font-weight: 950;
     }
 
     .money-input {
@@ -558,14 +703,23 @@ HTML_TEMPLATE = """
         font-weight: 800;
     }
 
+    .bankroll-balance {
+        padding: 10px 14px;
+        border: 1px solid rgba(0, 255, 136, 0.22);
+        border-radius: 12px;
+        background: rgba(0, 255, 136, 0.05);
+    }
+
     .bankroll-balance strong {
         display: flex;
         min-height: 48px;
         align-items: center;
-        color: var(--accent);
-        font-size: 24px;
-        font-weight: 900;
-        text-shadow: 0 0 12px rgba(0, 255, 136, 0.38);
+        color: #00ffae;
+        font-size: 34px;
+        font-weight: 950;
+        text-shadow:
+            0 0 10px rgba(0, 255, 174, 0.50),
+            0 0 22px rgba(0, 255, 174, 0.18);
     }
 
     #save-betting-state {
@@ -677,10 +831,7 @@ HTML_TEMPLATE = """
 <body>
 <div class="container">
     <header>
-        <div>
-            <div class="subtitle">FOOTWIN SPORTS</div>
-            <h1>Prognósticos POR1</h1>
-        </div>
+        <div class="subtitle">FOOTWIN SPORTS</div>
         <div class="updated">Atualizado: {{ updated_at }}</div>
     </header>
 
@@ -688,20 +839,71 @@ HTML_TEMPLATE = """
         <section class="summary">
             <article class="summary-card">
                 <span>Próxima jornada</span>
-                <strong>{{ round_number }}</strong>
+
+                <div class="summary-list">
+                    {% for item in league_rounds %}
+                        <div class="summary-row">
+                            <div class="summary-league">
+                                {% if item.league_id == "ENG1" %}
+                                    <img class="summary-flag-image" src="/assets/england-flag.svg" alt="Inglaterra">
+                                {% elif item.league_id == "ESP1" %}
+                                    <img class="summary-flag-image" src="/assets/spain-flag.svg" alt="Espanha">
+                                {% else %}
+                                    {{ item.flag }}
+                                {% endif %}
+                                {{ item.league_id }}
+                            </div>
+
+                            <strong>
+                                Jornada {{ item.round_number }}
+                            </strong>
+
+                            <small>
+                                {{ item.country_name }}
+                            </small>
+                        </div>
+                    {% endfor %}
+                </div>
             </article>
+
             <article class="summary-card">
-                <span>Jogos</span>
-                <strong>{{ matches|length }}</strong>
-            </article>
-            <article class="summary-card">
-                <span>Chave final</span>
-                <strong>{{ key }}</strong>
+                <span>Versões por campeonato</span>
+
+                <div class="summary-list">
+                    {% for item in league_versions %}
+                        <div class="summary-row">
+                            <div class="summary-league">
+                                {% if item.league_id == "ENG1" %}
+                                    <img class="summary-flag-image" src="/assets/england-flag.svg" alt="Inglaterra">
+                                {% elif item.league_id == "ESP1" %}
+                                    <img class="summary-flag-image" src="/assets/spain-flag.svg" alt="Espanha">
+                                {% else %}
+                                    {{ item.flag }}
+                                {% endif %}
+                                {{ item.league_id }}
+                            </div>
+
+                            <strong>
+                                {{ item.version_label }}
+                            </strong>
+
+                            {% if item.changed_count %}
+                                <small class="changed">
+                                    Houve alteração
+                                </small>
+                            {% else %}
+                                <small class="unchanged">
+                                    Sem alteração
+                                </small>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
             </article>
         </section>
 
         <section class="bankroll-panel">
-            <div class="bankroll-field">
+            <div class="bankroll-field bankroll-initial">
                 <label for="initial-bankroll">
                     Carteira inicial
                 </label>
@@ -718,7 +920,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
 
-            <div class="bankroll-field">
+            <div class="bankroll-field bankroll-mode">
                 <label for="stake-mode">
                     Modo da aposta
                 </label>
@@ -727,7 +929,7 @@ HTML_TEMPLATE = """
                         Valor fixo (€)
                     </option>
                     <option value="percentage">
-                        Percentagem da carteira (%)
+                        Percentagem (%)
                     </option>
                 </select>
             </div>
@@ -736,6 +938,13 @@ HTML_TEMPLATE = """
                 <span>Saldo atual</span>
                 <strong id="current-bankroll">
                     {{ "%.2f"|format(current_bankroll) }} €
+                </strong>
+            </div>
+
+            <div class="bankroll-accuracy">
+                <span>Eficácia dos algoritmos</span>
+                <strong>
+                    {{ algorithm_accuracy_label }}
                 </strong>
             </div>
 
@@ -755,11 +964,35 @@ HTML_TEMPLATE = """
 
         <main class="matches">
             {% for match in matches %}
-                <article class="match-card">
-                    <div class="match-top">
-                        <div class="teams">{{ match.home_team }} — {{ match.away_team }}</div>
-                        <div class="date">{{ match.display_date }}</div>
-                    </div>
+                <article
+                    class="match-card"
+                    {% if match.match_id == next_match_id %}
+                    id="next-match"
+                    {% endif %}
+                >
+                    <aside class="league-rail">
+                        <div class="league-flag">
+                            {% if match.league_id == "ENG1" %}
+                                <img class="league-flag-image" src="/assets/england-flag.svg" alt="Inglaterra">
+                            {% elif match.league_id == "ESP1" %}
+                                <img class="league-flag-image" src="/assets/spain-flag.svg" alt="Espanha">
+                            {% else %}
+                                {{ match.country_flag }}
+                            {% endif %}
+                        </div>
+                        <div class="league-code">
+                            {{ match.league_id }}
+                        </div>
+                        <div class="league-country">
+                            {{ match.country_name }}
+                        </div>
+                    </aside>
+
+                    <div class="match-content">
+                        <div class="match-top">
+                            <div class="teams">{{ match.home_team }} — {{ match.away_team }}</div>
+                            <div class="date">{{ match.display_date }}</div>
+                        </div>
 
                     <div class="probabilities">
                         <div class="probability">
@@ -862,6 +1095,7 @@ HTML_TEMPLATE = """
                                 </span>
                             {% endif %}
                         </div>
+                    </div>
                     </div>
                 </article>
             {% endfor %}
@@ -1053,6 +1287,24 @@ HTML_TEMPLATE = """
             }
         });
     })();
+
+    window.addEventListener("load", () => {
+        const nextMatch = document.getElementById(
+            "next-match"
+        );
+
+        if (!nextMatch) {
+            return;
+        }
+
+        requestAnimationFrame(() => {
+            nextMatch.scrollIntoView({
+                behavior: "auto",
+                block: "center",
+                inline: "nearest",
+            });
+        });
+    });
 </script>
 </body>
 </html>
@@ -1204,162 +1456,379 @@ def evaluate_prediction_result(
 
 
 def get_next_round_matches() -> tuple[int | None, list[dict]]:
-    now_utc = datetime.now(timezone.utc).isoformat()
+    league_rounds = []
+    matches = []
 
     with sqlite3.connect(DATABASE_PATH) as connection:
         connection.row_factory = sqlite3.Row
 
-        next_round_row = connection.execute(
+        league_rows = connection.execute(
             """
-            SELECT round_number
+            SELECT DISTINCT league_id
             FROM matches
-            WHERE league_id = 'POR1'
-              AND season_label = '2026/27'
-              AND status IN ('SCHEDULED', 'POSTPONED')
-              AND match_date >= ?
-              AND round_number IS NOT NULL
-            ORDER BY match_date, round_number, match_id
-            LIMIT 1
+            WHERE season_label = ?
+            ORDER BY
+                CASE league_id
+                    WHEN 'POR1' THEN 1
+                    WHEN 'ENG1' THEN 2
+                    WHEN 'ESP1' THEN 3
+                    WHEN 'FRA1' THEN 4
+                    WHEN 'ITA1' THEN 5
+                    WHEN 'GER1' THEN 6
+                    ELSE 99
+                END,
+                league_id
             """,
-            (now_utc,),
-        ).fetchone()
-
-        if next_round_row is None:
-            return None, []
-
-        round_number = int(next_round_row["round_number"])
-
-        rows = connection.execute(
-            """
-            SELECT
-                m.match_id,
-                m.round_number,
-                m.match_date,
-                m.status,
-                m.home_goals,
-                m.away_goals,
-                m.updated_at AS result_updated_at,
-                home.team_id AS home_team_id,
-                home.team_name AS home_team,
-                away.team_id AS away_team_id,
-                away.team_name AS away_team,
-                p.home_win_probability,
-                p.draw_probability,
-                p.away_win_probability,
-                p.most_likely_score,
-                p.prediction_timestamp,
-                p.prediction_stage,
-                p.prediction_version,
-                p.lineup_confirmed,
-                p.lineup_data_quality
-            FROM matches AS m
-            JOIN teams AS home
-              ON home.team_id = m.home_team_id
-            JOIN teams AS away
-              ON away.team_id = m.away_team_id
-            JOIN match_predictions AS p
-              ON p.prediction_id = (
-                  SELECT p2.prediction_id
-                  FROM match_predictions AS p2
-                  WHERE p2.match_id = m.match_id
-                    AND p2.is_current = 1
-                  ORDER BY
-                      CASE p2.prediction_stage
-                          WHEN 'CONFIRMED_LINEUP' THEN 1
-                          WHEN 'MANUAL_OVERRIDE' THEN 2
-                          WHEN 'PRE_MATCH' THEN 3
-                          ELSE 4
-                      END,
-                      p2.prediction_version DESC,
-                      p2.prediction_timestamp DESC,
-                      p2.created_at DESC
-                  LIMIT 1
-              )
-            WHERE m.league_id = 'POR1'
-              AND m.season_label = '2026/27'
-              AND m.round_number = ?
-              AND m.status IN ('SCHEDULED', 'POSTPONED', 'PLAYED')
-            ORDER BY m.match_date, m.match_id
-            """,
-            (round_number,),
+            (SEASON_LABEL,),
         ).fetchall()
 
-    matches = []
+        for league_row in league_rows:
+            league_id = str(league_row["league_id"])
 
-    for row in rows:
-        match_date = row["match_date"]
-        try:
-            parsed_date = datetime.fromisoformat(match_date.replace("Z", "+00:00"))
-            display_date = parsed_date.astimezone().strftime("%d/%m/%Y · %H:%M")
-        except (TypeError, ValueError):
-            display_date = match_date or "Data por definir"
+            metadata = LEAGUE_METADATA.get(
+                league_id,
+                {
+                    "name": league_id,
+                    "timezone": "Europe/Lisbon",
+                    "flag": "🏳️",
+                },
+            )
 
-        home_probability = float(row["home_win_probability"])
-        draw_probability = float(row["draw_probability"])
-        away_probability = float(row["away_win_probability"])
+            local_timezone = ZoneInfo(
+                metadata["timezone"]
+            )
 
-        prudent = prudent_prediction(
-            home_probability,
-            draw_probability,
-            away_probability,
-            row["most_likely_score"],
-        )
+            now_local = datetime.now(
+                local_timezone
+            ).replace(
+                tzinfo=None
+            ).strftime("%Y-%m-%d %H:%M:%S")
 
-        home_goals = row["home_goals"]
-        away_goals = row["away_goals"]
-
-        actual_score = None
-
-        if home_goals is not None and away_goals is not None:
-            actual_score = f"{home_goals}-{away_goals}"
-
-        result_class = evaluate_prediction_result(
-            prudent=prudent,
-            most_likely_score=row["most_likely_score"],
-            home_goals=home_goals,
-            away_goals=away_goals,
-        )
-
-        matches.append(
-            {
-                "match_id": str(row["match_id"]),
-                "home_team": row["home_team"],
-                "away_team": row["away_team"],
-                "home_team_id": row["home_team_id"],
-                "away_team_id": row["away_team_id"],
-                "home_logo": (
-                    f"/assets/team_logos/{row['home_team_id']}.png"
+            next_round_row = connection.execute(
+                """
+                SELECT round_number
+                FROM matches
+                WHERE league_id = ?
+                  AND season_label = ?
+                  AND status IN ('SCHEDULED', 'POSTPONED')
+                  AND match_date >= ?
+                  AND round_number IS NOT NULL
+                ORDER BY match_date, round_number, match_id
+                LIMIT 1
+                """,
+                (
+                    league_id,
+                    SEASON_LABEL,
+                    now_local,
                 ),
-                "away_logo": (
-                    f"/assets/team_logos/{row['away_team_id']}.png"
-                ),
-                "display_date": display_date,
-                "home_probability": home_probability,
-                "draw_probability": draw_probability,
-                "away_probability": away_probability,
-                "most_likely_score": row["most_likely_score"],
-                "prudent": prudent,
-                "status": row["status"],
-                "actual_score": actual_score,
-                "result_class": result_class,
-                "prediction_timestamp": row["prediction_timestamp"],
-                "prediction_stage": row["prediction_stage"],
-                "prediction_version": int(
-                    row["prediction_version"]
-                ),
-                "lineup_confirmed": bool(
-                    row["lineup_confirmed"]
-                ),
-                "lineup_data_quality": (
-                    row["lineup_data_quality"]
-                ),
-                "result_updated_at": row["result_updated_at"],
-            }
-        )
+            ).fetchone()
 
-    return round_number, matches
+            if next_round_row is None:
+                continue
+
+            round_number = int(
+                next_round_row["round_number"]
+            )
+
+            league_rounds.append(
+                {
+                    "league_id": league_id,
+                    "round_number": round_number,
+                    "flag": metadata["flag"],
+                    "country_name": metadata["name"],
+                }
+            )
+
+            rows = connection.execute(
+                """
+                SELECT
+                    m.match_id,
+                    m.league_id,
+                    m.round_number,
+                    m.match_date,
+                    m.status,
+                    m.home_goals,
+                    m.away_goals,
+                    m.updated_at AS result_updated_at,
+                    home.team_id AS home_team_id,
+                    home.team_name AS home_team,
+                    away.team_id AS away_team_id,
+                    away.team_name AS away_team,
+                    p.prediction_id,
+                    p.home_win_probability,
+                    p.draw_probability,
+                    p.away_win_probability,
+                    p.most_likely_score,
+                    p.prediction_timestamp,
+                    p.prediction_stage,
+                    p.prediction_version,
+                    p.lineup_confirmed,
+                    p.lineup_data_quality
+                FROM matches AS m
+                JOIN teams AS home
+                  ON home.team_id = m.home_team_id
+                JOIN teams AS away
+                  ON away.team_id = m.away_team_id
+                JOIN match_predictions AS p
+                  ON p.prediction_id = (
+                      SELECT p2.prediction_id
+                      FROM match_predictions AS p2
+                      WHERE p2.match_id = m.match_id
+                        AND p2.is_current = 1
+                      ORDER BY
+                          CASE p2.prediction_stage
+                              WHEN 'CONFIRMED_LINEUP' THEN 1
+                              WHEN 'MANUAL_OVERRIDE' THEN 2
+                              WHEN 'PRE_MATCH' THEN 3
+                              ELSE 4
+                          END,
+                          p2.prediction_version DESC,
+                          p2.prediction_timestamp DESC,
+                          p2.created_at DESC
+                      LIMIT 1
+                  )
+                WHERE m.league_id = ?
+                  AND m.season_label = ?
+                  AND (
+                      m.status = 'PLAYED'
+                      OR (
+                          m.round_number = ?
+                          AND m.status IN ('SCHEDULED', 'POSTPONED')
+                      )
+                  )
+                ORDER BY m.match_date, m.match_id
+                """,
+                (
+                    league_id,
+                    SEASON_LABEL,
+                    round_number,
+                ),
+            ).fetchall()
+
+            for row in rows:
+                baseline = connection.execute(
+                    """
+                    SELECT
+                        home_win_probability,
+                        draw_probability,
+                        away_win_probability,
+                        most_likely_score
+                    FROM match_predictions
+                    WHERE match_id = ?
+                      AND prediction_id <> ?
+                    ORDER BY
+                        CASE
+                            WHEN prediction_stage = 'PRE_MATCH' THEN 1
+                            ELSE 2
+                        END,
+                        prediction_version DESC,
+                        prediction_timestamp DESC,
+                        created_at DESC
+                    LIMIT 1
+                    """,
+                    (
+                        row["match_id"],
+                        row["prediction_id"],
+                    ),
+                ).fetchone()
+
+                match_date = row["match_date"]
+
+                try:
+                    parsed_date = datetime.fromisoformat(
+                        str(match_date).replace("Z", "+00:00")
+                    )
+
+                    if parsed_date.tzinfo is None:
+                        local_date = parsed_date.replace(
+                            tzinfo=timezone.utc
+                        ).astimezone(
+                            local_timezone
+                        )
+                    else:
+                        local_date = parsed_date.astimezone(
+                            local_timezone
+                        )
+
+                    display_date = local_date.strftime(
+                        "%d/%m/%Y · %H:%M"
+                    )
+
+                    sort_timestamp = local_date.astimezone(
+                        timezone.utc
+                    )
+
+                except (TypeError, ValueError):
+                    display_date = (
+                        match_date or "Data por definir"
+                    )
+                    sort_timestamp = datetime.max.replace(
+                        tzinfo=timezone.utc
+                    )
+
+                home_probability = float(
+                    row["home_win_probability"]
+                )
+                draw_probability = float(
+                    row["draw_probability"]
+                )
+                away_probability = float(
+                    row["away_win_probability"]
+                )
+
+                prudent = prudent_prediction(
+                    home_probability,
+                    draw_probability,
+                    away_probability,
+                    row["most_likely_score"],
+                )
+
+                home_goals = row["home_goals"]
+                away_goals = row["away_goals"]
+
+                actual_score = None
+
+                if (
+                    home_goals is not None
+                    and away_goals is not None
+                ):
+                    actual_score = (
+                        f"{home_goals}-{away_goals}"
+                    )
+
+                result_class = evaluate_prediction_result(
+                    prudent=prudent,
+                    most_likely_score=row["most_likely_score"],
+                    home_goals=home_goals,
+                    away_goals=away_goals,
+                )
+
+                prediction_changed = False
+
+                if baseline is not None:
+                    current_values = (
+                        round(home_probability, 10),
+                        round(draw_probability, 10),
+                        round(away_probability, 10),
+                        row["most_likely_score"],
+                    )
+
+                    baseline_values = (
+                        round(
+                            float(
+                                baseline["home_win_probability"]
+                            ),
+                            10,
+                        ),
+                        round(
+                            float(
+                                baseline["draw_probability"]
+                            ),
+                            10,
+                        ),
+                        round(
+                            float(
+                                baseline["away_win_probability"]
+                            ),
+                            10,
+                        ),
+                        baseline["most_likely_score"],
+                    )
+
+                    prediction_changed = (
+                        current_values != baseline_values
+                    )
+
+                matches.append(
+                    {
+                        "match_id": str(row["match_id"]),
+                        "league_id": league_id,
+                        "round_number": int(row["round_number"]),
+                        "country_name": metadata["name"],
+                        "country_flag": metadata["flag"],
+                        "home_team": row["home_team"],
+                        "away_team": row["away_team"],
+                        "home_team_id": row["home_team_id"],
+                        "away_team_id": row["away_team_id"],
+                        "home_logo": (
+                            f"/assets/team_logos/{row['home_team_id']}.png"
+                        ),
+                        "away_logo": (
+                            f"/assets/team_logos/{row['away_team_id']}.png"
+                        ),
+                        "display_date": display_date,
+                        "sort_timestamp": sort_timestamp,
+                        "home_probability": home_probability,
+                        "draw_probability": draw_probability,
+                        "away_probability": away_probability,
+                        "most_likely_score": row["most_likely_score"],
+                        "prudent": prudent,
+                        "status": row["status"],
+                        "actual_score": actual_score,
+                        "result_class": result_class,
+                        "prediction_timestamp": row["prediction_timestamp"],
+                        "prediction_stage": row["prediction_stage"],
+                        "prediction_version": int(
+                            row["prediction_version"]
+                        ),
+                        "prediction_changed": prediction_changed,
+                        "lineup_confirmed": bool(
+                            row["lineup_confirmed"]
+                        ),
+                        "lineup_data_quality": (
+                            row["lineup_data_quality"]
+                        ),
+                        "result_updated_at": (
+                            row["result_updated_at"]
+                        ),
+                    }
+                )
+
+    matches.sort(
+        key=lambda match: (
+            match["sort_timestamp"],
+            match["league_id"],
+            match["match_id"],
+        ),
+        reverse=True,
+    )
+
+    return (
+        league_rounds[0]["round_number"]
+        if league_rounds
+        else None,
+        matches,
+    )
 
 
+
+
+def get_algorithm_accuracy() -> float | None:
+    with sqlite3.connect(DATABASE_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+
+        row = connection.execute(
+            """
+            SELECT
+                AVG(
+                    CAST(
+                        pe.prudent_outcome_hit
+                        AS REAL
+                    )
+                ) * 100 AS accuracy
+            FROM prediction_evaluations AS pe
+            JOIN matches AS m
+              ON m.match_id = pe.match_id
+            WHERE m.season_label = ?
+              AND pe.prudent_outcome_hit IS NOT NULL
+            """,
+            (SEASON_LABEL,),
+        ).fetchone()
+
+    if row is None or row["accuracy"] is None:
+        return None
+
+    return float(row["accuracy"])
 
 
 def get_user_betting_state(
@@ -1629,7 +2098,6 @@ def logout():
     return redirect(url_for("login"))
 
 
-
 @app.route("/api/betting-state", methods=["POST"])
 @login_required
 def save_betting_state():
@@ -1845,7 +2313,7 @@ def predictions():
     try:
         run_final_result_update(
             league_id="POR1",
-            season_label="2026/27",
+            season_label=SEASON_LABEL,
             minutes_after_kickoff=120,
             database_path=DATABASE_PATH,
         )
@@ -1858,30 +2326,138 @@ def predictions():
     round_number, matches = get_next_round_matches()
 
     user_id = session.get("user_id")
+
     betting_state = get_user_betting_state(
         user_id=user_id,
         matches=matches,
     )
 
-    key = ", ".join(match["prudent"] for match in matches)
+    league_rounds = []
+    league_versions = []
+
+    league_order = [
+        "POR1",
+        "ENG1",
+        "ESP1",
+        "FRA1",
+        "ITA1",
+        "GER1",
+    ]
+
+    for league_id in league_order:
+        league_matches = [
+            match
+            for match in matches
+            if match["league_id"] == league_id
+        ]
+
+        if not league_matches:
+            continue
+
+        metadata = LEAGUE_METADATA.get(
+            league_id,
+            {
+                "name": league_id,
+                "flag": "🏳️",
+            },
+        )
+
+        future_matches = [
+            match
+            for match in league_matches
+            if match["status"] in (
+                "SCHEDULED",
+                "POSTPONED",
+            )
+        ]
+
+        next_round_number = (
+            future_matches[0]["round_number"]
+            if future_matches
+            else league_matches[-1]["round_number"]
+        )
+
+        league_rounds.append(
+            {
+                "league_id": league_id,
+                "country_name": metadata["name"],
+                "flag": metadata["flag"],
+                "round_number": next_round_number,
+            }
+        )
+
+        max_version = max(
+            match["prediction_version"]
+            for match in league_matches
+        )
+
+        changed_count = sum(
+            1
+            for match in league_matches
+            if match["prediction_changed"]
+        )
+
+        league_versions.append(
+            {
+                "league_id": league_id,
+                "country_name": metadata["name"],
+                "flag": metadata["flag"],
+                "version_label": f"V{max_version:03d}",
+                "changed_count": changed_count,
+            }
+        )
+
+    future_matches_for_scroll = [
+        match
+        for match in matches
+        if match["status"] in (
+            "SCHEDULED",
+            "POSTPONED",
+        )
+    ]
+
+    next_match_id = None
+
+    if future_matches_for_scroll:
+        next_match = min(
+            future_matches_for_scroll,
+            key=lambda match: match["sort_timestamp"],
+        )
+        next_match_id = next_match["match_id"]
+
+    accuracy = get_algorithm_accuracy()
+
+    if accuracy is None:
+        algorithm_accuracy_label = "Sem dados"
+    else:
+        algorithm_accuracy_label = f"{accuracy:.2f}%"
 
     timestamps = [
         match["prediction_timestamp"]
         for match in matches
         if match["prediction_timestamp"]
     ]
-    updated_at = max(timestamps) if timestamps else "Sem registo"
+
+    updated_at = (
+        max(timestamps)
+        if timestamps
+        else "Sem registo"
+    )
 
     return render_template_string(
         HTML_TEMPLATE,
         matches=matches,
         round_number=round_number,
-        key=key,
         updated_at=updated_at,
         initial_bankroll=betting_state["initial_bankroll"],
         current_bankroll=betting_state["current_bankroll"],
+        league_rounds=league_rounds,
+        league_versions=league_versions,
+        algorithm_accuracy_label=algorithm_accuracy_label,
+        next_match_id=next_match_id,
     )
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
+
