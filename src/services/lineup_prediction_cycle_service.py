@@ -13,7 +13,11 @@ from zoneinfo import ZoneInfo
 from src.collectors.liga_portugal_lineup_collector import (
     CollectionResult,
     LigaPortugalLineupError,
-    collect_match_lineup,
+    collect_match_lineup as collect_por1_lineup,
+)
+
+from src.collectors.ligue1_lineup_collector import (
+    collect_match_lineup as collect_fra1_lineup,
 )
 from src.database.init_database import connect_database
 from src.models.lineup_context_service import (
@@ -24,6 +28,15 @@ from src.models.prediction_storage_service import (
     predict_and_store_matches,
 )
 
+
+LEAGUE_TIMEZONES = {
+    "POR1": ZoneInfo("Europe/Lisbon"),
+    "ENG1": ZoneInfo("Europe/London"),
+    "ESP1": ZoneInfo("Europe/Madrid"),
+    "FRA1": ZoneInfo("Europe/Paris"),
+    "ITA1": ZoneInfo("Europe/Rome"),
+    "GER1": ZoneInfo("Europe/Berlin"),
+}
 
 DEFAULT_SEASON_LABEL = "2026/27"
 DEFAULT_WINDOW_START_MINUTES = 75
@@ -78,15 +91,13 @@ class CycleRunResult:
     )
 
 
-def parse_portugal_datetime(
+def parse_league_datetime(
     value: str,
+    league_id: str,
 ) -> datetime:
     """
-    Converte a data do calendário para uma data
-    consciente do fuso Europe/Lisbon.
-
-    Datas sem offset são interpretadas como hora
-    oficial de Portugal.
+    Converte datas de jogos usando o timezone
+    correto de cada campeonato.
     """
 
     cleaned = str(value).strip()
@@ -111,13 +122,18 @@ def parse_portugal_datetime(
             f"Data de jogo inválida: {value}"
         ) from exc
 
-    if parsed.tzinfo is None:
-        return parsed.replace(
-            tzinfo=PORTUGAL_TIMEZONE
+    timezone_value = LEAGUE_TIMEZONES.get(
+        str(league_id).upper(),
+        ZoneInfo("UTC"),
+    )
+
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(
+            timezone_value
         )
 
-    return parsed.astimezone(
-        PORTUGAL_TIMEZONE
+    return parsed.replace(
+        tzinfo=timezone_value
     )
 
 
@@ -153,9 +169,9 @@ def load_due_matches(
             "window_start_minutes deve ser superior a zero."
         )
 
-    if window_end_minutes < 0:
+    if window_end_minutes < -120:
         raise LineupPredictionCycleError(
-            "window_end_minutes não pode ser negativo."
+            "window_end_minutes não pode ser inferior a -120."
         )
 
     if window_start_minutes <= window_end_minutes:
@@ -231,8 +247,9 @@ def load_due_matches(
         match = dict(row)
 
         kickoff_local = (
-            parse_portugal_datetime(
-                str(match["match_date"])
+            parse_league_datetime(
+                str(match["match_date"]),
+                str(match["league_id"]),
             )
         )
 
@@ -317,6 +334,40 @@ def get_current_confirmed_prediction(
             model_version,
         ),
     ).fetchone()
+
+
+
+def collect_lineup_by_league(
+    league_id: str,
+    match_id: str,
+    database_path: str | Path | None = None,
+) -> CollectionResult:
+    """
+    Seleciona o collector correto por campeonato.
+    """
+
+    league = str(
+        league_id
+    ).upper()
+
+    collectors = {
+        "POR1": collect_por1_lineup,
+        "FRA1": collect_fra1_lineup,
+    }
+
+    collector = collectors.get(
+        league
+    )
+
+    if collector is None:
+        raise LineupPredictionCycleError(
+            f"Collector ainda não configurado para {league}"
+        )
+
+    return collector(
+        match_id=match_id,
+        database_path=database_path,
+    )
 
 
 def apply_collection_result(
@@ -447,7 +498,8 @@ def run_lineup_prediction_cycle(
                     continue
 
                 collection = (
-                    collect_match_lineup(
+                    collect_lineup_by_league(
+                        league_id=item.league_id,
                         match_id=item.match_id,
                         database_path=(
                             database_path
