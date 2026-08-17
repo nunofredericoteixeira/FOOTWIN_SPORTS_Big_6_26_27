@@ -19,6 +19,21 @@ from src.collectors.liga_portugal_lineup_collector import (
 from src.collectors.ligue1_lineup_collector import (
     collect_match_lineup as collect_fra1_lineup,
 )
+
+from src.collectors.premier_league_lineup_collector import (
+    collect_match_lineup as collect_eng1_lineup,
+)
+
+from src.collectors.laliga_lineup_collector import (
+    collect_match_lineup as collect_esp1_lineup,
+)
+
+from src.collectors.seriea_lineup_collector import (
+    collect_match_lineup as collect_ita1_lineup,
+)
+from src.collectors.bundesliga_lineup_collector import (
+    collect_match_lineup as collect_ger1_lineup,
+)
 from src.database.init_database import connect_database
 from src.models.lineup_context_service import (
     load_match_lineup_context,
@@ -129,6 +144,24 @@ def parse_league_datetime(
 
     if parsed.tzinfo is not None:
         return parsed.astimezone(
+            timezone_value
+        )
+
+    utc_naive_leagues = {
+        "ESP1",
+        "FRA1",
+        "ENG1",
+        "ITA1",
+        "GER1",
+    }
+
+    if (
+        str(league_id).upper()
+        in utc_naive_leagues
+    ):
+        return parsed.replace(
+            tzinfo=ZoneInfo("UTC")
+        ).astimezone(
             timezone_value
         )
 
@@ -305,6 +338,47 @@ def get_pre_match_model_version(
     )
 
 
+def get_active_league_model_version(
+    connection: sqlite3.Connection,
+    league_id: str,
+    season_label: str,
+) -> str | None:
+    """
+    Obtém o modelo ACTIVE específico da liga.
+
+    Não altera nem reescreve o PRE_MATCH existente.
+    Se a liga ainda não tiver modelo próprio ACTIVE,
+    o chamador poderá usar o modelo do PRE_MATCH
+    como fallback de compatibilidade.
+    """
+
+    row = connection.execute(
+        """
+        SELECT
+            model_version
+        FROM model_versions
+        WHERE league_id = ?
+          AND season_label = ?
+          AND version_status = 'ACTIVE'
+        ORDER BY
+            COALESCE(activated_at, created_at) DESC,
+            created_at DESC
+        LIMIT 1
+        """,
+        (
+            str(league_id).strip().upper(),
+            season_label,
+        ),
+    ).fetchone()
+
+    if row is None:
+        return None
+
+    return str(
+        row["model_version"]
+    )
+
+
 def get_current_confirmed_prediction(
     connection: sqlite3.Connection,
     match_id: str,
@@ -353,6 +427,10 @@ def collect_lineup_by_league(
     collectors = {
         "POR1": collect_por1_lineup,
         "FRA1": collect_fra1_lineup,
+        "ENG1": collect_eng1_lineup,
+        "ESP1": collect_esp1_lineup,
+        "ITA1": collect_ita1_lineup,
+        "GER1": collect_ger1_lineup,
     }
 
     collector = collectors.get(
@@ -470,14 +548,14 @@ def run_lineup_prediction_cycle(
             )
 
             try:
-                model_version = (
+                pre_match_model_version = (
                     get_pre_match_model_version(
                         connection=connection,
                         match_id=item.match_id,
                     )
                 )
 
-                if model_version is None:
+                if pre_match_model_version is None:
                     item.collection_status = (
                         "SKIPPED"
                     )
@@ -496,6 +574,19 @@ def run_lineup_prediction_cycle(
                         item
                     )
                     continue
+
+                league_model_version = (
+                    get_active_league_model_version(
+                        connection=connection,
+                        league_id=item.league_id,
+                        season_label=season_label,
+                    )
+                )
+
+                model_version = (
+                    league_model_version
+                    or pre_match_model_version
+                )
 
                 collection = (
                     collect_lineup_by_league(

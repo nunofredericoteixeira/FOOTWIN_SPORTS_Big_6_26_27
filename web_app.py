@@ -26,6 +26,7 @@ UTC_NAIVE_LEAGUES = {
     "ESP1",
     "FRA1",
     "ITA1",
+    "GER1",
 }
 
 
@@ -1499,19 +1500,38 @@ HTML_TEMPLATE = """
                                 {{ item.league_id }}
                             </div>
 
-                            <strong>
-                                {{ item.version_label }}
-                            </strong>
+                            <div class="summary-version-history">
+                                {% if item.model_history %}
+                                    {% for version in item.model_history %}
+                                        <div class="summary-version-row">
+                                            <div>
+                                                <strong>
+                                                    {{ version.display_version }}
+                                                </strong>
 
-                            {% if item.changed_count %}
-                                <small class="changed">
-                                    Houve alteração
-                                </small>
-                            {% else %}
-                                <small class="unchanged">
-                                    Sem alteração
-                                </small>
-                            {% endif %}
+                                                <small>
+                                                    {{ version.model_version }}
+                                                </small>
+                                            </div>
+
+                                            <div>
+                                                <small>
+                                                    {{ version.evaluated_matches }}
+                                                    jogos avaliados
+                                                </small>
+
+                                                <strong>
+                                                    {{ version.accuracy_label }}
+                                                </strong>
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <small class="unchanged">
+                                        Sem versões registadas
+                                    </small>
+                                {% endif %}
+                            </div>
                         </div>
                     {% endfor %}
                 </div>
@@ -2413,6 +2433,7 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                     p.prediction_timestamp,
                     p.prediction_stage,
                     p.prediction_version,
+                    p.model_version,
                     p.lineup_confirmed,
                     p.lineup_data_quality
                 FROM matches AS m
@@ -2623,6 +2644,7 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                         "prediction_version": int(
                             row["prediction_version"]
                         ),
+                        "model_version": row["model_version"],
                         "prediction_changed": prediction_changed,
                         "lineup_confirmed": bool(
                             row["lineup_confirmed"]
@@ -3525,7 +3547,7 @@ def assets(filename):
 @app.route("/")
 @login_required
 def predictions():
-    for league_id in ("POR1", "ESP1"):
+    for league_id in ("POR1", "ESP1", "ENG1", "FRA1", "ITA1", "GER1"):
         try:
             run_final_result_update(
                 league_id=league_id,
@@ -3567,10 +3589,14 @@ def predictions():
     ]
 
     for league_id in league_order:
-        league_summaries.append(
+        league_summary = (
             get_league_dashboard_summary(
                 league_id
             )
+        )
+
+        league_summaries.append(
+            league_summary
         )
 
         league_matches = [
@@ -3614,24 +3640,15 @@ def predictions():
             }
         )
 
-        max_version = max(
-            match["prediction_version"]
-            for match in league_matches
-        )
-
-        changed_count = sum(
-            1
-            for match in league_matches
-            if match["prediction_changed"]
-        )
-
         league_versions.append(
             {
                 "league_id": league_id,
                 "country_name": metadata["name"],
                 "flag": metadata["flag"],
-                "version_label": f"V{max_version:03d}",
-                "changed_count": changed_count,
+                "model_history": league_summary.get(
+                    "model_history",
+                    [],
+                ),
             }
         )
 
