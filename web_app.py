@@ -2664,23 +2664,11 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
 
     matches.sort(
         key=lambda match: (
-            0
-            if (
-                match["status"] in ("SCHEDULED", "POSTPONED")
-                and match["sort_timestamp"] >= now_utc
-            )
-            else 1,
-            (
-                match["sort_timestamp"]
-                if (
-                    match["status"] in ("SCHEDULED", "POSTPONED")
-                    and match["sort_timestamp"] >= now_utc
-                )
-                else -match["sort_timestamp"].timestamp()
-            ),
+            match["sort_timestamp"],
             match["league_id"],
             match["match_id"],
-        )
+        ),
+        reverse=True,
     )
 
     return (
