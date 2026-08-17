@@ -62,12 +62,24 @@ def utc_now_iso() -> str:
     )
 
 
-def parse_match_datetime(value: str) -> datetime:
-    """
-    Converte a data guardada em SQLite para datetime.
+UTC_NAIVE_LEAGUES = {
+    "ENG1",
+    "ESP1",
+    "FRA1",
+    "ITA1",
+}
 
-    As datas sem fuso horário são interpretadas como hora de Portugal
-    continental durante o horário de verão de agosto, equivalente a UTC+1.
+
+def parse_match_datetime(
+    value: str,
+    *,
+    league_id: str | None = None,
+) -> datetime:
+    """
+    Converte a data guardada em SQLite para UTC.
+
+    ENG1, ESP1, FRA1 e ITA1 guardam datas naive que já representam UTC.
+    POR1 mantém a interpretação histórica pela hora de Portugal.
     """
 
     cleaned = value.strip()
@@ -82,12 +94,23 @@ def parse_match_datetime(value: str) -> datetime:
         ) from exc
 
     if parsed.tzinfo is None:
-        portugal_summer_offset = timezone(
-            timedelta(hours=1)
+        league = (
+            league_id.strip().upper()
+            if league_id
+            else ""
         )
-        parsed = parsed.replace(
-            tzinfo=portugal_summer_offset
-        )
+
+        if league in UTC_NAIVE_LEAGUES:
+            parsed = parsed.replace(
+                tzinfo=timezone.utc
+            )
+        else:
+            portugal_summer_offset = timezone(
+                timedelta(hours=1)
+            )
+            parsed = parsed.replace(
+                tzinfo=portugal_summer_offset
+            )
 
     return parsed.astimezone(timezone.utc)
 
@@ -165,7 +188,8 @@ def get_eligible_matches(
     for row in rows:
         try:
             kickoff_utc = parse_match_datetime(
-                str(row["match_date"])
+                str(row["match_date"]),
+                league_id=str(row["league_id"]),
             )
         except FinalResultServiceError:
             logger.exception(
@@ -247,6 +271,95 @@ def extract_final_score(html: str) -> tuple[int, int] | None:
     away_goals = int(match.group(2))
 
     return home_goals, away_goals
+
+
+LALIGA_API_BASE_URL = (
+    "https://apim.laliga.com/public-service"
+)
+
+LALIGA_SUBSCRIPTION_KEY = (
+    "c13c3a8e2f6b46da9c5c425cf61fab3e"
+)
+
+
+def extract_laliga_provider_match_id(
+    match_id: str,
+) -> str | None:
+    match = re.search(
+        r"_LL(\d+)_",
+        match_id,
+    )
+
+    if match is None:
+        return None
+
+    return match.group(1)
+
+
+def collect_laliga_final_result(
+    match_id: str,
+    source_url: str,
+    *,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> FinalResult | None:
+    provider_match_id = extract_laliga_provider_match_id(
+        match_id
+    )
+
+    if provider_match_id is None:
+        raise FinalResultServiceError(
+            "Não foi possível extrair o ID LaLiga do jogo: "
+            f"{match_id}"
+        )
+
+    response = requests.get(
+        f"{LALIGA_API_BASE_URL}/api/v1/matches",
+        params={
+            "subscriptionSlug": "laliga-easports-2026",
+            "seasonYear": 2026,
+            "limit": 100,
+            "orderField": "date",
+            "orderType": "asc",
+        },
+        headers={
+            "Ocp-Apim-Subscription-Key": (
+                LALIGA_SUBSCRIPTION_KEY
+            ),
+            "Content-Language": "en",
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        timeout=timeout_seconds,
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    for item in payload.get("matches", []):
+        if str(item.get("id")) != provider_match_id:
+            continue
+
+        if item.get("status") != "FullTime":
+            return None
+
+        home_score = item.get("home_score")
+        away_score = item.get("away_score")
+
+        if (
+            home_score is None
+            or away_score is None
+        ):
+            return None
+
+        return FinalResult(
+            match_id=match_id,
+            home_goals=int(home_score),
+            away_goals=int(away_score),
+            source_url=source_url,
+        )
+
+    return None
 
 
 def collect_final_result(
@@ -351,11 +464,22 @@ def run_final_result_update(
             )
 
             try:
-                result = collect_final_result(
-                    match_id=match_id,
-                    source_url=source_url,
-                    timeout_seconds=timeout_seconds,
-                )
+                row_league_id = str(
+                    row["league_id"]
+                ).upper()
+
+                if row_league_id == "ESP1":
+                    result = collect_laliga_final_result(
+                        match_id=match_id,
+                        source_url=source_url,
+                        timeout_seconds=timeout_seconds,
+                    )
+                else:
+                    result = collect_final_result(
+                        match_id=match_id,
+                        source_url=source_url,
+                        timeout_seconds=timeout_seconds,
+                    )
 
                 if result is None:
                     unavailable_matches += 1

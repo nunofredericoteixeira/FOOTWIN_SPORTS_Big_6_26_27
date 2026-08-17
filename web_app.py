@@ -20,6 +20,46 @@ LEAGUE_METADATA = {
 
 SEASON_LABEL = "2026/27"
 
+
+UTC_NAIVE_LEAGUES = {
+    "ENG1",
+    "ESP1",
+    "FRA1",
+    "ITA1",
+}
+
+
+def match_datetime_utc(
+    league_id: str,
+    value: str,
+) -> datetime:
+    parsed = datetime.fromisoformat(
+        str(value).replace("Z", "+00:00")
+    )
+
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc)
+
+    league = str(league_id).upper()
+
+    if league in UTC_NAIVE_LEAGUES:
+        return parsed.replace(
+            tzinfo=timezone.utc
+        )
+
+    metadata = LEAGUE_METADATA.get(
+        league,
+        {
+            "timezone": "Europe/Lisbon",
+        },
+    )
+
+    return parsed.replace(
+        tzinfo=ZoneInfo(metadata["timezone"])
+    ).astimezone(timezone.utc)
+
+
+
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -34,6 +74,7 @@ from flask import (
 )
 
 from src.services.final_result_service import run_final_result_update
+from src.services.prediction_evaluation_service import run_prediction_evaluation
 from src.services.supabase_auth_service import (
     SupabaseAuthError,
     login_user,
@@ -174,11 +215,221 @@ HTML_TEMPLATE = """
             color: var(--muted);
         }
 
-        .summary {
+        .top-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .top-control-button,
+        .league-filter-button,
+        .summary-close-button {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(16, 29, 47, 0.92);
+            color: var(--text);
+            cursor: pointer;
+            font: inherit;
+            font-weight: 850;
+            transition:
+                border-color 0.18s ease,
+                background 0.18s ease,
+                transform 0.18s ease;
+        }
+
+        .top-control-button {
+            min-height: 42px;
+            padding: 9px 15px;
+            border-radius: 12px;
+        }
+
+        .top-control-button:hover,
+        .league-filter-button:hover,
+        .summary-close-button:hover {
+            border-color: var(--accent);
+        }
+
+        .league-filter-group {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 7px;
+            margin-left: auto;
+        }
+
+        .league-filter-button {
+            display: inline-flex;
+            min-width: 44px;
+            min-height: 42px;
+            align-items: center;
+            justify-content: center;
+            padding: 7px 10px;
+            border-radius: 12px;
+            font-size: 19px;
+        }
+
+        .league-filter-button.all-leagues {
+            min-width: auto;
+            padding-inline: 14px;
+            font-size: 13px;
+        }
+
+        .league-filter-button.active {
+            color: #042116;
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .league-filter-england {
+            width: 27px;
+            height: 17px;
+            border-radius: 2px;
+        }
+
+        .league-dashboard {
+            margin-bottom: 24px;
+        }
+
+        .league-dashboard[hidden] {
+            display: none;
+        }
+
+        .league-dashboard-card {
+            padding: 20px;
+            background: rgba(16, 29, 47, 0.92);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+        }
+
+        .league-dashboard-card[hidden] {
+            display: none;
+        }
+
+        .league-dashboard-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .league-dashboard-title {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+        }
+
+        .league-dashboard-title strong {
+            font-size: 18px;
+        }
+
+        .league-dashboard-title > span:last-child {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .league-dashboard-stats {
             display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .league-stat {
+            padding: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .league-stat span {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .league-stat strong {
+            font-size: 18px;
+        }
+
+        .league-model-current {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 14px;
+            padding: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 12px;
+        }
+
+        .league-model-current > span {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .league-model-current small {
+            color: var(--muted);
+        }
+
+        .league-model-history {
+            display: grid;
+            gap: 8px;
+        }
+
+        .league-model-history-title {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        .league-model-row {
+            display: grid;
+            grid-template-columns:
+                minmax(180px, 1fr)
+                minmax(160px, auto);
+            gap: 12px;
+            align-items: center;
+            padding: 10px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 11px;
+            background: rgba(255, 255, 255, 0.025);
+        }
+
+        .league-model-row > div:last-child {
+            text-align: right;
+        }
+
+        .league-model-row small,
+        .league-model-row span {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .league-model-empty {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .summary {
+            display: none;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 16px;
             margin-bottom: 24px;
+        }
+
+        .summary.open {
+            display: grid;
         }
 
         .summary-card,
@@ -190,7 +441,32 @@ HTML_TEMPLATE = """
         }
 
         .summary-card {
+            position: relative;
             padding: 20px;
+        }
+
+        .summary-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .summary-card-title {
+            color: var(--muted);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+        }
+
+        .summary-close-button {
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            border-radius: 10px;
+            font-size: 20px;
+            line-height: 1;
         }
 
         .summary-card > span {
@@ -296,6 +572,50 @@ HTML_TEMPLATE = """
             border-radius: 2px;
             vertical-align: middle;
             margin-right: 5px;
+        }
+
+        .england-flag {
+            position: relative;
+            display: inline-block;
+            background: #ffffff;
+            overflow: hidden;
+            flex: 0 0 auto;
+        }
+
+        .england-flag::before,
+        .england-flag::after {
+            content: "";
+            position: absolute;
+            background: #ce1124;
+        }
+
+        .england-flag::before {
+            left: 41.6667%;
+            top: 0;
+            width: 16.6667%;
+            height: 100%;
+        }
+
+        .england-flag::after {
+            left: 0;
+            top: 36.1111%;
+            width: 100%;
+            height: 27.7778%;
+        }
+
+        .england-flag-summary {
+            width: 25px;
+            height: 15px;
+            border-radius: 2px;
+            vertical-align: middle;
+            margin-right: 5px;
+        }
+
+        .england-flag-large {
+            width: 48px;
+            height: 29px;
+            border-radius: 3px;
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.18);
         }
 
         .league-code {
@@ -785,6 +1105,18 @@ HTML_TEMPLATE = """
                 grid-template-columns: 1fr;
             }
 
+            .league-dashboard-stats {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .league-model-row {
+                grid-template-columns: 1fr;
+            }
+
+            .league-model-row > div:last-child {
+                text-align: left;
+            }
+
             .bankroll-panel {
                 grid-template-columns: 1fr;
                 align-items: stretch;
@@ -836,16 +1168,279 @@ HTML_TEMPLATE = """
     </header>
 
     {% if matches %}
-        <section class="summary">
+        <section class="top-controls">
+            <button
+                class="top-control-button"
+                type="button"
+                data-summary-target="next-round-summary"
+            >
+                Próxima Jornada
+            </button>
+
+            <button
+                class="top-control-button"
+                type="button"
+                data-summary-target="versions-summary"
+            >
+                Versões por campeonato
+            </button>
+
+            <div
+                class="league-filter-group"
+                aria-label="Filtrar por campeonato"
+            >
+                <button
+                    class="league-filter-button all-leagues active"
+                    type="button"
+                    data-league-filter="ALL"
+                >
+                    Todos
+                </button>
+
+                <button
+                    class="league-filter-button"
+                    type="button"
+                    data-league-filter="POR1"
+                    title="Portugal"
+                    aria-label="Portugal"
+                >
+                    🇵🇹
+                </button>
+
+                <button
+                    class="league-filter-button"
+                    type="button"
+                    data-league-filter="ENG1"
+                    title="Inglaterra"
+                    aria-label="Inglaterra"
+                >
+                    <span
+                        class="england-flag league-filter-england"
+                        role="img"
+                        aria-label="Inglaterra"
+                    ></span>
+                </button>
+
+                <button
+                    class="league-filter-button"
+                    type="button"
+                    data-league-filter="ESP1"
+                    title="Espanha"
+                    aria-label="Espanha"
+                >
+                    🇪🇸
+                </button>
+
+                <button
+                    class="league-filter-button"
+                    type="button"
+                    data-league-filter="FRA1"
+                    title="França"
+                    aria-label="França"
+                >
+                    🇫🇷
+                </button>
+
+                <button
+                    class="league-filter-button"
+                    type="button"
+                    data-league-filter="ITA1"
+                    title="Itália"
+                    aria-label="Itália"
+                >
+                    🇮🇹
+                </button>
+
+                <button
+                    class="league-filter-button"
+                    type="button"
+                    data-league-filter="GER1"
+                    title="Alemanha"
+                    aria-label="Alemanha"
+                >
+                    🇩🇪
+                </button>
+            </div>
+        </section>
+
+        <section
+            class="league-dashboard"
+            id="league-dashboard"
+            hidden
+        >
+            {% for item in league_summaries %}
+                <article
+                    class="league-dashboard-card"
+                    data-league-dashboard="{{ item.league_id }}"
+                    hidden
+                >
+                    <div class="league-dashboard-header">
+                        <div>
+                            <div class="league-dashboard-title">
+                                {% if item.league_id == "ENG1" %}
+                                    <span
+                                        class="england-flag england-flag-summary"
+                                        role="img"
+                                        aria-label="Inglaterra"
+                                    ></span>
+                                {% elif item.league_id == "ESP1" %}
+                                    <img
+                                        class="summary-flag-image"
+                                        src="/assets/spain-flag.svg"
+                                        alt="Espanha"
+                                    >
+                                {% else %}
+                                    {{ item.flag }}
+                                {% endif %}
+
+                                <strong>
+                                    {{ item.league_id }}
+                                </strong>
+
+                                <span>
+                                    {{ item.country_name }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <button
+                            class="summary-close-button"
+                            type="button"
+                            id="close-league-dashboard"
+                            aria-label="Fechar resumo do campeonato"
+                        >
+                            ×
+                        </button>
+                    </div>
+
+                    <div class="league-dashboard-stats">
+                        <div class="league-stat">
+                            <span>Jornada atual</span>
+                            <strong>
+                                {% if item.current_round is not none %}
+                                    {{ item.current_round }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </strong>
+                        </div>
+
+                        <div class="league-stat">
+                            <span>Disputados</span>
+                            <strong>
+                                {{ item.played_matches }}
+                            </strong>
+                        </div>
+
+                        <div class="league-stat">
+                            <span>Por disputar</span>
+                            <strong>
+                                {{ item.remaining_matches }}
+                            </strong>
+                        </div>
+
+                        <div class="league-stat">
+                            <span>Total</span>
+                            <strong>
+                                {{ item.total_matches }}
+                            </strong>
+                        </div>
+
+                        <div class="league-stat">
+                            <span>Eficácia</span>
+                            <strong>
+                                {{ item.accuracy_label }}
+                            </strong>
+                        </div>
+                    </div>
+
+                    <div class="league-model-current">
+                        <span>Modelo ativo</span>
+
+                        {% if item.active_model %}
+                            <strong>
+                                {{ item.active_model.display_version }}
+                            </strong>
+
+                            <small>
+                                {{ item.active_model.model_version }}
+                            </small>
+                        {% else %}
+                            <strong>
+                                Sem modelo registado
+                            </strong>
+                        {% endif %}
+                    </div>
+
+                    <div class="league-model-history">
+                        <span class="league-model-history-title">
+                            Histórico de versões
+                        </span>
+
+                        {% if item.model_history %}
+                            {% for version in item.model_history %}
+                                <div class="league-model-row">
+                                    <div>
+                                        <strong>
+                                            {{ version.display_version }}
+                                        </strong>
+
+                                        <small>
+                                            {{ version.model_version }}
+                                        </small>
+                                    </div>
+
+                                    <div>
+                                        <span>
+                                            {{ version.evaluated_matches }}
+                                            jogos avaliados
+                                        </span>
+
+                                        <strong>
+                                            {{ version.accuracy_label }}
+                                        </strong>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="league-model-empty">
+                                Sem versões registadas.
+                            </div>
+                        {% endif %}
+                    </div>
+                </article>
+            {% endfor %}
+        </section>
+
+        <section
+            class="summary"
+            id="next-round-summary"
+        >
             <article class="summary-card">
-                <span>Próxima jornada</span>
+                <div class="summary-card-header">
+                    <span class="summary-card-title">
+                        Próxima jornada
+                    </span>
+
+                    <button
+                        class="summary-close-button"
+                        type="button"
+                        data-summary-close="next-round-summary"
+                        aria-label="Fechar Próxima Jornada"
+                    >
+                        ×
+                    </button>
+                </div>
 
                 <div class="summary-list">
                     {% for item in league_rounds %}
-                        <div class="summary-row">
+                        <div
+                            class="summary-row"
+                            data-summary-league="{{ item.league_id }}"
+                        >
                             <div class="summary-league">
                                 {% if item.league_id == "ENG1" %}
-                                    <img class="summary-flag-image" src="/assets/england-flag.svg" alt="Inglaterra">
+                                    <span class="england-flag england-flag-summary" role="img" aria-label="Inglaterra"></span>
                                 {% elif item.league_id == "ESP1" %}
                                     <img class="summary-flag-image" src="/assets/spain-flag.svg" alt="Espanha">
                                 {% else %}
@@ -865,16 +1460,37 @@ HTML_TEMPLATE = """
                     {% endfor %}
                 </div>
             </article>
+        </section>
 
+        <section
+            class="summary"
+            id="versions-summary"
+        >
             <article class="summary-card">
-                <span>Versões por campeonato</span>
+                <div class="summary-card-header">
+                    <span class="summary-card-title">
+                        Versões por campeonato
+                    </span>
+
+                    <button
+                        class="summary-close-button"
+                        type="button"
+                        data-summary-close="versions-summary"
+                        aria-label="Fechar Versões por campeonato"
+                    >
+                        ×
+                    </button>
+                </div>
 
                 <div class="summary-list">
                     {% for item in league_versions %}
-                        <div class="summary-row">
+                        <div
+                            class="summary-row"
+                            data-summary-league="{{ item.league_id }}"
+                        >
                             <div class="summary-league">
                                 {% if item.league_id == "ENG1" %}
-                                    <img class="summary-flag-image" src="/assets/england-flag.svg" alt="Inglaterra">
+                                    <span class="england-flag england-flag-summary" role="img" aria-label="Inglaterra"></span>
                                 {% elif item.league_id == "ESP1" %}
                                     <img class="summary-flag-image" src="/assets/spain-flag.svg" alt="Espanha">
                                 {% else %}
@@ -966,6 +1582,7 @@ HTML_TEMPLATE = """
             {% for match in matches %}
                 <article
                     class="match-card"
+                    data-league="{{ match.league_id }}"
                     {% if match.match_id == next_match_id %}
                     id="next-match"
                     {% endif %}
@@ -973,7 +1590,7 @@ HTML_TEMPLATE = """
                     <aside class="league-rail">
                         <div class="league-flag">
                             {% if match.league_id == "ENG1" %}
-                                <img class="league-flag-image" src="/assets/england-flag.svg" alt="Inglaterra">
+                                <span class="england-flag england-flag-large" role="img" aria-label="Inglaterra"></span>
                             {% elif match.league_id == "ESP1" %}
                                 <img class="league-flag-image" src="/assets/spain-flag.svg" alt="Espanha">
                             {% else %}
@@ -991,7 +1608,10 @@ HTML_TEMPLATE = """
                     <div class="match-content">
                         <div class="match-top">
                             <div class="teams">{{ match.home_team }} — {{ match.away_team }}</div>
-                            <div class="date">{{ match.display_date }}</div>
+                            <div
+                                class="date match-local-date"
+                                data-kickoff-utc="{{ match.kickoff_utc_iso }}"
+                            >{{ match.display_date }}</div>
                         </div>
 
                     <div class="probabilities">
@@ -1105,6 +1725,186 @@ HTML_TEMPLATE = """
     {% endif %}
 </div>
 <script>
+    (() => {
+        const summaryButtons = document.querySelectorAll(
+            "[data-summary-target]"
+        );
+        const summaryCloseButtons = document.querySelectorAll(
+            "[data-summary-close]"
+        );
+        const leagueButtons = document.querySelectorAll(
+            "[data-league-filter]"
+        );
+        const matchCards = document.querySelectorAll(
+            ".match-card[data-league]"
+        );
+        const summaryRows = document.querySelectorAll(
+            "[data-summary-league]"
+        );
+        const leagueDashboard = document.getElementById(
+            "league-dashboard"
+        );
+        const leagueDashboardCards = document.querySelectorAll(
+            "[data-league-dashboard]"
+        );
+        const closeLeagueDashboard = document.getElementById(
+            "close-league-dashboard"
+        );
+
+        let activeLeague = "ALL";
+
+        const applyLeagueFilter = () => {
+            for (const card of matchCards) {
+                const visible = (
+                    activeLeague === "ALL"
+                    || card.dataset.league === activeLeague
+                );
+
+                card.hidden = !visible;
+            }
+
+            for (const row of summaryRows) {
+                const visible = (
+                    activeLeague === "ALL"
+                    || row.dataset.summaryLeague === activeLeague
+                );
+
+                row.hidden = !visible;
+            }
+
+            for (const button of leagueButtons) {
+                button.classList.toggle(
+                    "active",
+                    button.dataset.leagueFilter === activeLeague,
+                );
+            }
+
+            if (leagueDashboard) {
+                if (activeLeague === "ALL") {
+                    leagueDashboard.hidden = true;
+
+                    for (const dashboardCard of leagueDashboardCards) {
+                        dashboardCard.hidden = true;
+                    }
+                } else {
+                    leagueDashboard.hidden = false;
+
+                    for (const dashboardCard of leagueDashboardCards) {
+                        dashboardCard.hidden = (
+                            dashboardCard.dataset.leagueDashboard
+                            !== activeLeague
+                        );
+                    }
+                }
+            }
+        };
+
+        for (const button of summaryButtons) {
+            button.addEventListener("click", () => {
+                const targetId = button.dataset.summaryTarget;
+                const target = document.getElementById(targetId);
+
+                if (!target) {
+                    return;
+                }
+
+                const isOpen = target.classList.contains("open");
+
+                document
+                    .querySelectorAll(".summary.open")
+                    .forEach((panel) => {
+                        panel.classList.remove("open");
+                    });
+
+                if (!isOpen) {
+                    target.classList.add("open");
+                }
+            });
+        }
+
+        for (const button of summaryCloseButtons) {
+            button.addEventListener("click", () => {
+                const target = document.getElementById(
+                    button.dataset.summaryClose
+                );
+
+                if (target) {
+                    target.classList.remove("open");
+                }
+            });
+        }
+
+        for (const button of leagueButtons) {
+            button.addEventListener("click", () => {
+                activeLeague = button.dataset.leagueFilter || "ALL";
+                applyLeagueFilter();
+            });
+        }
+
+        if (closeLeagueDashboard) {
+            closeLeagueDashboard.addEventListener("click", () => {
+                activeLeague = "ALL";
+                applyLeagueFilter();
+            });
+        }
+
+        applyLeagueFilter();
+    })();
+
+    (() => {
+        const dateElements = document.querySelectorAll(
+            ".match-local-date[data-kickoff-utc]"
+        );
+
+        const userTimeZone = (
+            Intl.DateTimeFormat()
+            .resolvedOptions()
+            .timeZone
+        );
+
+        for (const element of dateElements) {
+            const raw = element.dataset.kickoffUtc;
+
+            if (!raw) {
+                continue;
+            }
+
+            const kickoff = new Date(raw);
+
+            if (Number.isNaN(kickoff.getTime())) {
+                continue;
+            }
+
+            const parts = new Intl.DateTimeFormat(
+                "pt-PT",
+                {
+                    timeZone: userTimeZone,
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                },
+            ).formatToParts(kickoff);
+
+            const values = {};
+
+            for (const part of parts) {
+                if (part.type !== "literal") {
+                    values[part.type] = part.value;
+                }
+            }
+
+            element.textContent = (
+                `${values.day}/${values.month}/${values.year}`
+                + ` · ${values.hour}:${values.minute}`
+            );
+
+            element.title = userTimeZone;
+        }
+    })();
+
     (() => {
         const saveButton = document.getElementById(
             "save-betting-state"
@@ -1498,30 +2298,61 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                 metadata["timezone"]
             )
 
-            now_local = datetime.now(
-                local_timezone
-            ).replace(
-                tzinfo=None
-            ).strftime("%Y-%m-%d %H:%M:%S")
-
-            next_round_row = connection.execute(
+            candidate_rows = connection.execute(
                 """
-                SELECT round_number
+                SELECT
+                    round_number,
+                    match_date,
+                    match_id
                 FROM matches
                 WHERE league_id = ?
                   AND season_label = ?
                   AND status IN ('SCHEDULED', 'POSTPONED')
-                  AND match_date >= ?
+                  AND match_date IS NOT NULL
+                  AND TRIM(match_date) <> ''
                   AND round_number IS NOT NULL
                 ORDER BY match_date, round_number, match_id
-                LIMIT 1
                 """,
                 (
                     league_id,
                     SEASON_LABEL,
-                    now_local,
                 ),
-            ).fetchone()
+            ).fetchall()
+
+            now_utc = datetime.now(
+                timezone.utc
+            )
+
+            future_candidates = []
+
+            for candidate in candidate_rows:
+                try:
+                    kickoff_utc = match_datetime_utc(
+                        league_id,
+                        candidate["match_date"],
+                    )
+                except (TypeError, ValueError):
+                    continue
+
+                if kickoff_utc >= now_utc:
+                    future_candidates.append(
+                        (
+                            kickoff_utc,
+                            candidate,
+                        )
+                    )
+
+            if future_candidates:
+                future_candidates.sort(
+                    key=lambda item: (
+                        item[0],
+                        int(item[1]["round_number"]),
+                        str(item[1]["match_id"]),
+                    )
+                )
+                next_round_row = future_candidates[0][1]
+            else:
+                next_round_row = None
 
             if next_round_row is None:
                 continue
@@ -1529,6 +2360,21 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
             round_number = int(
                 next_round_row["round_number"]
             )
+
+            future_round_numbers = []
+
+            for _kickoff_utc, candidate in future_candidates:
+                candidate_round = int(
+                    candidate["round_number"]
+                )
+
+                if candidate_round not in future_round_numbers:
+                    future_round_numbers.append(
+                        candidate_round
+                    )
+
+                if len(future_round_numbers) >= 2:
+                    break
 
             league_rounds.append(
                 {
@@ -1539,8 +2385,13 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                 }
             )
 
+            placeholders = ",".join(
+                "?"
+                for _ in future_round_numbers
+            )
+
             rows = connection.execute(
-                """
+                f"""
                 SELECT
                     m.match_id,
                     m.league_id,
@@ -1592,7 +2443,7 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                   AND (
                       m.status = 'PLAYED'
                       OR (
-                          m.round_number = ?
+                          m.round_number IN ({placeholders})
                           AND m.status IN ('SCHEDULED', 'POSTPONED')
                       )
                   )
@@ -1601,7 +2452,7 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                 (
                     league_id,
                     SEASON_LABEL,
-                    round_number,
+                    *future_round_numbers,
                 ),
             ).fetchall()
 
@@ -1635,27 +2486,20 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                 match_date = row["match_date"]
 
                 try:
-                    parsed_date = datetime.fromisoformat(
-                        str(match_date).replace("Z", "+00:00")
+                    sort_timestamp = match_datetime_utc(
+                        league_id,
+                        match_date,
                     )
 
-                    if parsed_date.tzinfo is None:
-                        local_date = parsed_date.replace(
-                            tzinfo=timezone.utc
-                        ).astimezone(
-                            local_timezone
-                        )
-                    else:
-                        local_date = parsed_date.astimezone(
-                            local_timezone
-                        )
-
-                    display_date = local_date.strftime(
-                        "%d/%m/%Y · %H:%M"
+                    display_date = sort_timestamp.strftime(
+                        "%d/%m/%Y · %H:%M UTC"
                     )
 
-                    sort_timestamp = local_date.astimezone(
-                        timezone.utc
+                    kickoff_utc_iso = (
+                        sort_timestamp
+                        .astimezone(timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z")
                     )
 
                 except (TypeError, ValueError):
@@ -1665,6 +2509,13 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                     sort_timestamp = datetime.max.replace(
                         tzinfo=timezone.utc
                     )
+                    kickoff_utc_iso = ""
+
+                if (
+                    row["status"] in ("SCHEDULED", "POSTPONED")
+                    and sort_timestamp < datetime.now(timezone.utc)
+                ):
+                    continue
 
                 home_probability = float(
                     row["home_win_probability"]
@@ -1757,6 +2608,7 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                             f"/assets/team_logos/{row['away_team_id']}.png"
                         ),
                         "display_date": display_date,
+                        "kickoff_utc_iso": kickoff_utc_iso,
                         "sort_timestamp": sort_timestamp,
                         "home_probability": home_probability,
                         "draw_probability": draw_probability,
@@ -1784,13 +2636,29 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                     }
                 )
 
+    now_utc = datetime.now(
+        timezone.utc
+    )
+
     matches.sort(
         key=lambda match: (
-            match["sort_timestamp"],
+            0
+            if (
+                match["status"] in ("SCHEDULED", "POSTPONED")
+                and match["sort_timestamp"] >= now_utc
+            )
+            else 1,
+            (
+                match["sort_timestamp"]
+                if (
+                    match["status"] in ("SCHEDULED", "POSTPONED")
+                    and match["sort_timestamp"] >= now_utc
+                )
+                else -match["sort_timestamp"].timestamp()
+            ),
             match["league_id"],
             match["match_id"],
-        ),
-        reverse=True,
+        )
     )
 
     return (
@@ -1803,13 +2671,241 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
 
 
 
-def get_algorithm_accuracy() -> float | None:
+def get_algorithm_accuracy(
+    *,
+    league_id: str | None = None,
+    model_version: str | None = None,
+) -> float | None:
     with sqlite3.connect(DATABASE_PATH) as connection:
         connection.row_factory = sqlite3.Row
 
-        row = connection.execute(
+        conditions = [
+            "m.season_label = ?",
+            "pe.prudent_outcome_hit IS NOT NULL",
+        ]
+        parameters = [SEASON_LABEL]
+
+        if league_id:
+            conditions.append("m.league_id = ?")
+            parameters.append(league_id.strip().upper())
+
+        if model_version:
+            conditions.append("pe.model_version = ?")
+            parameters.append(model_version.strip())
+
+        if model_version:
+            row = connection.execute(
+                f"""
+                SELECT
+                    AVG(
+                        CAST(
+                            pe.prudent_outcome_hit
+                            AS REAL
+                        )
+                    ) * 100 AS accuracy
+                FROM prediction_evaluations AS pe
+                JOIN matches AS m
+                  ON m.match_id = pe.match_id
+                WHERE {" AND ".join(conditions)}
+                """,
+                parameters,
+            ).fetchone()
+        else:
+            row = connection.execute(
+                f"""
+                WITH ranked AS (
+                    SELECT
+                        pe.match_id,
+                        pe.prudent_outcome_hit,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY pe.match_id
+                            ORDER BY
+                                CASE pe.prediction_stage
+                                    WHEN 'CONFIRMED_LINEUP' THEN 1
+                                    WHEN 'MANUAL_OVERRIDE' THEN 2
+                                    WHEN 'PRE_MATCH' THEN 3
+                                    ELSE 4
+                                END,
+                                mp.prediction_version DESC,
+                                mp.prediction_timestamp DESC,
+                                mp.created_at DESC,
+                                pe.prediction_id DESC
+                        ) AS selection_rank
+                    FROM prediction_evaluations AS pe
+                    JOIN matches AS m
+                      ON m.match_id = pe.match_id
+                    JOIN match_predictions AS mp
+                      ON mp.prediction_id = pe.prediction_id
+                    WHERE {" AND ".join(conditions)}
+                )
+                SELECT
+                    AVG(
+                        CAST(
+                            prudent_outcome_hit
+                            AS REAL
+                        )
+                    ) * 100 AS accuracy
+                FROM ranked
+                WHERE selection_rank = 1
+                """,
+                parameters,
+            ).fetchone()
+
+    if row is None or row["accuracy"] is None:
+        return None
+
+    return float(row["accuracy"])
+
+
+
+def get_league_dashboard_summary(
+    league_id: str,
+) -> dict:
+    league_id = league_id.strip().upper()
+
+    metadata = LEAGUE_METADATA.get(
+        league_id,
+        {
+            "name": league_id,
+            "flag": "🏳️",
+        },
+    )
+
+    with sqlite3.connect(DATABASE_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+
+        totals = connection.execute(
             """
             SELECT
+                COUNT(*) AS total_matches,
+                SUM(
+                    CASE
+                        WHEN status IN ('PLAYED', 'AWARDED')
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS played_matches,
+                SUM(
+                    CASE
+                        WHEN status NOT IN ('PLAYED', 'AWARDED')
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS remaining_matches
+            FROM matches
+            WHERE league_id = ?
+              AND season_label = ?
+            """,
+            (
+                league_id,
+                SEASON_LABEL,
+            ),
+        ).fetchone()
+
+        current_round_row = connection.execute(
+            """
+            SELECT
+                MIN(round_number) AS current_round
+            FROM matches
+            WHERE league_id = ?
+              AND season_label = ?
+              AND status NOT IN ('PLAYED', 'AWARDED')
+            """,
+            (
+                league_id,
+                SEASON_LABEL,
+            ),
+        ).fetchone()
+
+        if (
+            current_round_row is None
+            or current_round_row["current_round"] is None
+        ):
+            current_round_row = connection.execute(
+                """
+                SELECT
+                    MAX(round_number) AS current_round
+                FROM matches
+                WHERE league_id = ?
+                  AND season_label = ?
+                """,
+                (
+                    league_id,
+                    SEASON_LABEL,
+                ),
+            ).fetchone()
+
+        model_rows = connection.execute(
+            """
+            SELECT
+                mv.model_version,
+                mv.parent_model_version,
+                mv.version_status,
+                mv.created_at,
+                mv.activated_at,
+                mv.retired_at
+            FROM model_versions AS mv
+            WHERE mv.season_label = ?
+              AND (
+                    mv.league_id = ?
+                    OR (
+                        mv.league_id IS NULL
+                        AND EXISTS (
+                            SELECT 1
+                            FROM match_predictions AS mp
+                            JOIN matches AS m
+                              ON m.match_id = mp.match_id
+                            WHERE m.league_id = ?
+                              AND m.season_label = ?
+                              AND mp.model_version = mv.model_version
+                        )
+                    )
+              )
+            ORDER BY
+                COALESCE(
+                    mv.activated_at,
+                    mv.created_at
+                ),
+                mv.model_version
+            """,
+            (
+                SEASON_LABEL,
+                league_id,
+                league_id,
+                SEASON_LABEL,
+            ),
+        ).fetchall()
+
+        prediction_usage_rows = connection.execute(
+            """
+            SELECT
+                mp.model_version,
+                COUNT(DISTINCT mp.match_id) AS predicted_matches
+            FROM match_predictions AS mp
+            JOIN matches AS m
+              ON m.match_id = mp.match_id
+            WHERE m.league_id = ?
+              AND m.season_label = ?
+            GROUP BY mp.model_version
+            """,
+            (
+                league_id,
+                SEASON_LABEL,
+            ),
+        ).fetchall()
+
+        evaluation_rows = connection.execute(
+            """
+            SELECT
+                pe.model_version,
+                COUNT(*) AS evaluated_matches,
+                SUM(
+                    CASE
+                        WHEN pe.prudent_outcome_hit = 1
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS hits,
                 AVG(
                     CAST(
                         pe.prudent_outcome_hit
@@ -1819,16 +2915,135 @@ def get_algorithm_accuracy() -> float | None:
             FROM prediction_evaluations AS pe
             JOIN matches AS m
               ON m.match_id = pe.match_id
-            WHERE m.season_label = ?
+            WHERE m.league_id = ?
+              AND m.season_label = ?
               AND pe.prudent_outcome_hit IS NOT NULL
+            GROUP BY pe.model_version
             """,
-            (SEASON_LABEL,),
-        ).fetchone()
+            (
+                league_id,
+                SEASON_LABEL,
+            ),
+        ).fetchall()
 
-    if row is None or row["accuracy"] is None:
-        return None
+    usage_by_model = {
+        row["model_version"]: int(
+            row["predicted_matches"] or 0
+        )
+        for row in prediction_usage_rows
+    }
 
-    return float(row["accuracy"])
+    evaluation_by_model = {
+        row["model_version"]: {
+            "evaluated_matches": int(
+                row["evaluated_matches"] or 0
+            ),
+            "hits": int(
+                row["hits"] or 0
+            ),
+            "accuracy": (
+                float(row["accuracy"])
+                if row["accuracy"] is not None
+                else None
+            ),
+        }
+        for row in evaluation_rows
+    }
+
+    model_history = []
+
+    for index, row in enumerate(
+        model_rows,
+        start=1,
+    ):
+        model_version = row["model_version"]
+        evaluation = evaluation_by_model.get(
+            model_version,
+            {
+                "evaluated_matches": 0,
+                "hits": 0,
+                "accuracy": None,
+            },
+        )
+
+        model_history.append(
+            {
+                "display_version": f"V{index:03d}",
+                "model_version": model_version,
+                "status": row["version_status"],
+                "parent_model_version": (
+                    row["parent_model_version"]
+                ),
+                "predicted_matches": usage_by_model.get(
+                    model_version,
+                    0,
+                ),
+                "evaluated_matches": (
+                    evaluation["evaluated_matches"]
+                ),
+                "hits": evaluation["hits"],
+                "accuracy": evaluation["accuracy"],
+                "accuracy_label": (
+                    f'{evaluation["accuracy"]:.2f}%'
+                    if evaluation["accuracy"] is not None
+                    else "Sem jogos avaliados"
+                ),
+                "activated_at": row["activated_at"],
+                "retired_at": row["retired_at"],
+            }
+        )
+
+    active_models = [
+        item
+        for item in model_history
+        if item["status"] == "ACTIVE"
+    ]
+
+    active_model = (
+        active_models[-1]
+        if active_models
+        else (
+            model_history[-1]
+            if model_history
+            else None
+        )
+    )
+
+    league_accuracy = get_algorithm_accuracy(
+        league_id=league_id,
+    )
+
+    return {
+        "league_id": league_id,
+        "country_name": metadata["name"],
+        "flag": metadata["flag"],
+        "current_round": (
+            int(current_round_row["current_round"])
+            if (
+                current_round_row is not None
+                and current_round_row["current_round"]
+                is not None
+            )
+            else None
+        ),
+        "total_matches": int(
+            totals["total_matches"] or 0
+        ),
+        "played_matches": int(
+            totals["played_matches"] or 0
+        ),
+        "remaining_matches": int(
+            totals["remaining_matches"] or 0
+        ),
+        "accuracy": league_accuracy,
+        "accuracy_label": (
+            f"{league_accuracy:.2f}%"
+            if league_accuracy is not None
+            else "Sem jogos avaliados"
+        ),
+        "active_model": active_model,
+        "model_history": model_history,
+    }
 
 
 def get_user_betting_state(
@@ -2310,18 +3525,24 @@ def assets(filename):
 @app.route("/")
 @login_required
 def predictions():
-    try:
-        run_final_result_update(
-            league_id="POR1",
-            season_label=SEASON_LABEL,
-            minutes_after_kickoff=120,
-            database_path=DATABASE_PATH,
-        )
-    except Exception as exc:
-        print(
-            "AVISO: não foi possível atualizar "
-            f"os resultados finais: {exc}"
-        )
+    for league_id in ("POR1", "ESP1"):
+        try:
+            run_final_result_update(
+                league_id=league_id,
+                season_label=SEASON_LABEL,
+                minutes_after_kickoff=120,
+                database_path=DATABASE_PATH,
+            )
+            run_prediction_evaluation(
+                league_id=league_id,
+                season_label=SEASON_LABEL,
+                database_path=DATABASE_PATH,
+            )
+        except Exception as exc:
+            print(
+                "AVISO: não foi possível atualizar "
+                f"resultados/avaliações de {league_id}: {exc}"
+            )
 
     round_number, matches = get_next_round_matches()
 
@@ -2334,6 +3555,7 @@ def predictions():
 
     league_rounds = []
     league_versions = []
+    league_summaries = []
 
     league_order = [
         "POR1",
@@ -2345,6 +3567,12 @@ def predictions():
     ]
 
     for league_id in league_order:
+        league_summaries.append(
+            get_league_dashboard_summary(
+                league_id
+            )
+        )
+
         league_matches = [
             match
             for match in matches
@@ -2453,6 +3681,7 @@ def predictions():
         current_bankroll=betting_state["current_bankroll"],
         league_rounds=league_rounds,
         league_versions=league_versions,
+        league_summaries=league_summaries,
         algorithm_accuracy_label=algorithm_accuracy_label,
         next_match_id=next_match_id,
     )
