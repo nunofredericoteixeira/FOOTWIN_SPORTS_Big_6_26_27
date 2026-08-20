@@ -23,6 +23,7 @@ from src.models.simulation_query_service import (
     SimulationSummary,
     get_simulation_by_id,
 )
+from src.database.init_database import connect_database
 from src.utils.logger import get_logger
 
 
@@ -61,7 +62,7 @@ class LeaguePredictionPipelineError(RuntimeError):
 def run_league_prediction_pipeline(
     league_id: str,
     season_label: str = "2026/27",
-    model_version: str = "MODEL_0_1",
+    model_version: str | None = None,
     dataset_version: str | None = None,
     simulation_count: int = 10_000,
     random_seed: int = 202627,
@@ -96,21 +97,53 @@ def run_league_prediction_pipeline(
         "season_label",
     )
 
-    final_model_version = clean_required_text(
-        model_version,
-        "model_version",
+    final_database_path = (
+        Path(database_path)
+        if database_path is not None
+        else None
     )
+
+    if model_version is not None:
+        final_model_version = clean_required_text(
+            model_version,
+            "model_version",
+        )
+    else:
+        connection = connect_database(
+            final_database_path
+        )
+
+        try:
+            row = connection.execute(
+                """
+                SELECT model_version
+                FROM model_versions
+                WHERE league_id = ?
+                  AND season_label = ?
+                  AND version_status = 'ACTIVE'
+                ORDER BY
+                    COALESCE(activated_at, created_at) DESC,
+                    created_at DESC
+                LIMIT 1
+                """,
+                (
+                    final_league_id,
+                    final_season_label,
+                ),
+            ).fetchone()
+        finally:
+            connection.close()
+
+        final_model_version = (
+            str(row["model_version"])
+            if row is not None
+            else "MODEL_0_1"
+        )
 
     final_output_directory = (
         Path(output_directory)
         if output_directory is not None
         else Path("outputs/simulations")
-    )
-
-    final_database_path = (
-        Path(database_path)
-        if database_path is not None
-        else None
     )
 
     run_id = build_pipeline_run_id(

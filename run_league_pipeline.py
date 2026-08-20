@@ -36,8 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--model-version",
-        default="MODEL_0_1",
-        help="Versão do modelo.",
+        default=None,
+        help=(
+            "Versão do modelo. Se omitida, usa o "
+            "modelo ACTIVE específico da liga."
+        ),
     )
 
     parser.add_argument(

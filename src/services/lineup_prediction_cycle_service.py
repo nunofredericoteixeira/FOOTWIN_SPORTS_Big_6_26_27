@@ -575,17 +575,8 @@ def run_lineup_prediction_cycle(
                     )
                     continue
 
-                league_model_version = (
-                    get_active_league_model_version(
-                        connection=connection,
-                        league_id=item.league_id,
-                        season_label=season_label,
-                    )
-                )
-
                 model_version = (
-                    league_model_version
-                    or pre_match_model_version
+                    pre_match_model_version
                 )
 
                 collection = (
