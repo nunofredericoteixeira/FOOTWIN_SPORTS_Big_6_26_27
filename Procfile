@@ -1,1 +1,1 @@
-web: ./.venv/bin/python migrate_league_scoped_model_learning.py && ./.venv/bin/python migrate_por1_esp1_recalibration.py && gunicorn web_app:app
+web: ./.venv/bin/python migrate_league_scoped_model_learning.py && ./.venv/bin/python migrate_por1_esp1_recalibration.py && ./.venv/bin/python migrate_0008_reconcile_league_models.py && gunicorn web_app:app
