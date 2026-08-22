@@ -67,6 +67,7 @@ UTC_NAIVE_LEAGUES = {
     "ESP1",
     "FRA1",
     "ITA1",
+    "GER1",
 }
 
 
@@ -78,7 +79,8 @@ def parse_match_datetime(
     """
     Converte a data guardada em SQLite para UTC.
 
-    ENG1, ESP1, FRA1 e ITA1 guardam datas naive que já representam UTC.
+    ENG1, ESP1, FRA1, ITA1 e GER1 guardam datas naive
+    que já representam UTC.
     POR1 mantém a interpretação histórica pela hora de Portugal.
     """
 
@@ -362,6 +364,455 @@ def collect_laliga_final_result(
     return None
 
 
+
+PREMIER_LEAGUE_API_BASE_URL = (
+    "https://footballapi.pulselive.com/football"
+)
+
+PREMIER_LEAGUE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 Chrome/150.0 Safari/537.36"
+    ),
+    "Origin": "https://www.premierleague.com",
+    "Referer": "https://www.premierleague.com/",
+    "Accept": "application/json",
+}
+
+
+def extract_premier_league_provider_match_id(
+    match_id: str,
+) -> str | None:
+    match = re.search(
+        r"_PL(\d+)_",
+        match_id,
+    )
+
+    if match is None:
+        return None
+
+    return match.group(1)
+
+
+def collect_premier_league_final_result(
+    match_id: str,
+    source_url: str,
+    *,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> FinalResult | None:
+    provider_match_id = (
+        extract_premier_league_provider_match_id(
+            match_id
+        )
+    )
+
+    if provider_match_id is None:
+        raise FinalResultServiceError(
+            "Não foi possível extrair o ID "
+            "Premier League do jogo: "
+            f"{match_id}"
+        )
+
+    response = requests.get(
+        (
+            f"{PREMIER_LEAGUE_API_BASE_URL}"
+            f"/fixtures/{provider_match_id}"
+        ),
+        params={
+            "altIds": "true",
+        },
+        headers=PREMIER_LEAGUE_HEADERS,
+        timeout=timeout_seconds,
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    status = str(
+        payload.get("status") or ""
+    ).strip().upper()
+
+    if status != "C":
+        return None
+
+    teams = payload.get("teams")
+
+    if (
+        not isinstance(teams, list)
+        or len(teams) != 2
+    ):
+        raise FinalResultServiceError(
+            "Payload Premier League concluído "
+            "sem exatamente duas equipas."
+        )
+
+    home_score = teams[0].get("score")
+    away_score = teams[1].get("score")
+
+    if (
+        home_score is None
+        or away_score is None
+    ):
+        raise FinalResultServiceError(
+            "Jogo Premier League concluído "
+            "sem resultado final."
+        )
+
+    return FinalResult(
+        match_id=match_id,
+        home_goals=int(float(home_score)),
+        away_goals=int(float(away_score)),
+        source_url=source_url,
+    )
+
+
+LIGUE1_API_BASE_URL = "https://ma-api.ligue1.fr"
+
+LIGUE1_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 "
+        "(Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 "
+        "(KHTML, like Gecko) "
+        "Chrome/150.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
+
+
+def extract_ligue1_provider_match_id(
+    match_id: str,
+) -> str | None:
+    match = re.search(
+        r"_L1(\d+)_",
+        match_id,
+    )
+
+    if match is None:
+        return None
+
+    return (
+        "l1_championship_match_"
+        + match.group(1)
+    )
+
+
+def collect_ligue1_final_result(
+    match_id: str,
+    source_url: str,
+    *,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> FinalResult | None:
+    provider_match_id = (
+        extract_ligue1_provider_match_id(
+            match_id
+        )
+    )
+
+    if provider_match_id is None:
+        raise FinalResultServiceError(
+            "Não foi possível extrair o ID "
+            "oficial Ligue 1 do jogo: "
+            f"{match_id}"
+        )
+
+    response = requests.get(
+        (
+            f"{LIGUE1_API_BASE_URL}"
+            f"/championship-match/{provider_match_id}"
+        ),
+        headers=LIGUE1_HEADERS,
+        timeout=timeout_seconds,
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    period = str(
+        payload.get("period") or ""
+    ).strip().casefold()
+
+    if period != "fulltime":
+        return None
+
+    home = payload.get("home")
+    away = payload.get("away")
+
+    if not isinstance(home, dict):
+        raise FinalResultServiceError(
+            "Payload Ligue 1 concluído sem "
+            "objeto home válido."
+        )
+
+    if not isinstance(away, dict):
+        raise FinalResultServiceError(
+            "Payload Ligue 1 concluído sem "
+            "objeto away válido."
+        )
+
+    home_score = home.get("score")
+    away_score = away.get("score")
+
+    if (
+        home_score is None
+        or away_score is None
+    ):
+        raise FinalResultServiceError(
+            "Jogo Ligue 1 concluído "
+            "sem resultado final."
+        )
+
+    return FinalResult(
+        match_id=match_id,
+        home_goals=int(float(home_score)),
+        away_goals=int(float(away_score)),
+        source_url=source_url,
+    )
+
+SERIEA_API_BASE_URL = (
+    "https://seriea-api.prd.sdp.deltatre.digital/v1"
+)
+
+SERIEA_SEASON_ID = (
+    "serie-a::Football_Season::"
+    "ed7fdc2a3e7b408b942ec177b7b956b5"
+)
+
+SERIEA_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/plain; x-api-version=1.0",
+}
+
+
+def extract_seriea_match_id_from_source_url(
+    source_url: str,
+) -> str | None:
+    match = re.search(
+        r"(serie-a::Football_Match::[A-Za-z0-9]+)",
+        source_url,
+    )
+
+    if match is None:
+        return None
+
+    return match.group(1)
+
+
+def collect_seriea_final_result(
+    match_id: str,
+    source_url: str,
+    *,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> FinalResult | None:
+    from urllib.parse import quote
+
+    provider_match_id = (
+        extract_seriea_match_id_from_source_url(
+            source_url
+        )
+    )
+
+    if provider_match_id is None:
+        raise FinalResultServiceError(
+            "Não foi possível extrair o ID "
+            "oficial Serie A do source_url: "
+            f"{source_url}"
+        )
+
+    response = requests.get(
+        (
+            f"{SERIEA_API_BASE_URL}"
+            f"/serie-a/football/seasons/"
+            f"{quote(SERIEA_SEASON_ID, safe='')}"
+            f"/matches/"
+            f"{quote(provider_match_id, safe='')}"
+            f"/header"
+        ),
+        headers=SERIEA_HEADERS,
+        timeout=timeout_seconds,
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    status = str(
+        payload.get("status") or ""
+    ).strip().upper()
+
+    if status != "FINISHED":
+        return None
+
+    phase = str(
+        payload.get("phase") or ""
+    ).strip().upper()
+
+    if phase != "FULL_TIME":
+        return None
+
+    home_score = payload.get(
+        "providerHomeScore"
+    )
+    away_score = payload.get(
+        "providerAwayScore"
+    )
+
+    if (
+        home_score is None
+        or away_score is None
+    ):
+        raise FinalResultServiceError(
+            "Jogo Serie A FINISHED/FULL_TIME "
+            "sem resultado final."
+        )
+
+    return FinalResult(
+        match_id=match_id,
+        home_goals=int(float(home_score)),
+        away_goals=int(float(away_score)),
+        source_url=source_url,
+    )
+
+
+BUNDESLIGA_API_BASE_URL = (
+    "https://wapp.bapi.bundesliga.com"
+)
+
+BUNDESLIGA_COMPETITION_ID = (
+    "DFL-COM-000001"
+)
+
+BUNDESLIGA_SEASON_ID = (
+    "DFL-SEA-0001KA"
+)
+
+BUNDESLIGA_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "application/json",
+}
+
+
+def extract_bundesliga_provider_match_id(
+    match_id: str,
+) -> str | None:
+    match = re.search(
+        r"_(DFLJ[A-Z0-9]+)_",
+        match_id,
+    )
+
+    if match is None:
+        return None
+
+    compact = match.group(1)
+
+    return (
+        "DFL-MAT-"
+        + compact.removeprefix("DFL")
+    )
+
+
+def collect_bundesliga_final_result(
+    match_id: str,
+    source_url: str,
+    *,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+) -> FinalResult | None:
+    provider_match_id = (
+        extract_bundesliga_provider_match_id(
+            match_id
+        )
+    )
+
+    if provider_match_id is None:
+        raise FinalResultServiceError(
+            "Não foi possível extrair o ID "
+            "oficial Bundesliga do jogo: "
+            f"{match_id}"
+        )
+
+    response = requests.get(
+        (
+            f"{BUNDESLIGA_API_BASE_URL}/all/"
+            f"{BUNDESLIGA_COMPETITION_ID}/"
+            f"seasons/{BUNDESLIGA_SEASON_ID}/"
+            "matches.json"
+        ),
+        headers=BUNDESLIGA_HEADERS,
+        timeout=timeout_seconds,
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    if not isinstance(payload, dict):
+        raise FinalResultServiceError(
+            "Payload Bundesliga inesperado: "
+            f"{type(payload).__name__}."
+        )
+
+    item = payload.get(
+        provider_match_id
+    )
+
+    if item is None:
+        return None
+
+    if not isinstance(item, dict):
+        raise FinalResultServiceError(
+            "Registo Bundesliga do jogo "
+            "não é um objeto válido."
+        )
+
+    status = str(
+        item.get("matchStatus") or ""
+    ).strip().upper()
+
+    if status != "FINAL_WHISTLE":
+        return None
+
+    score = item.get("score")
+
+    if not isinstance(score, dict):
+        raise FinalResultServiceError(
+            "Jogo Bundesliga terminado "
+            "sem objeto score válido."
+        )
+
+    home = score.get("home")
+    away = score.get("away")
+
+    if (
+        not isinstance(home, dict)
+        or not isinstance(away, dict)
+    ):
+        raise FinalResultServiceError(
+            "Jogo Bundesliga terminado "
+            "sem score home/away válido."
+        )
+
+    home_score = home.get("fulltime")
+    away_score = away.get("fulltime")
+
+    if (
+        home_score is None
+        or away_score is None
+    ):
+        raise FinalResultServiceError(
+            "Jogo Bundesliga FINAL_WHISTLE "
+            "sem resultado fulltime."
+        )
+
+    return FinalResult(
+        match_id=match_id,
+        home_goals=int(float(home_score)),
+        away_goals=int(float(away_score)),
+        source_url=source_url,
+    )
+
+
 def collect_final_result(
     match_id: str,
     source_url: str,
@@ -470,6 +921,30 @@ def run_final_result_update(
 
                 if row_league_id == "ESP1":
                     result = collect_laliga_final_result(
+                        match_id=match_id,
+                        source_url=source_url,
+                        timeout_seconds=timeout_seconds,
+                    )
+                elif row_league_id == "ENG1":
+                    result = collect_premier_league_final_result(
+                        match_id=match_id,
+                        source_url=source_url,
+                        timeout_seconds=timeout_seconds,
+                    )
+                elif row_league_id == "FRA1":
+                    result = collect_ligue1_final_result(
+                        match_id=match_id,
+                        source_url=source_url,
+                        timeout_seconds=timeout_seconds,
+                    )
+                elif row_league_id == "ITA1":
+                    result = collect_seriea_final_result(
+                        match_id=match_id,
+                        source_url=source_url,
+                        timeout_seconds=timeout_seconds,
+                    )
+                elif row_league_id == "GER1":
+                    result = collect_bundesliga_final_result(
                         match_id=match_id,
                         source_url=source_url,
                         timeout_seconds=timeout_seconds,
