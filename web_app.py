@@ -80,6 +80,7 @@ from src.services.supabase_auth_service import (
     SupabaseAuthError,
     login_user,
     logout_user,
+    refresh_session,
     register_user,
 )
 from src.services.supabase_betting_service import (
@@ -3240,8 +3241,45 @@ def get_user_betting_state(
 def login_required(view_function):
     @wraps(view_function)
     def wrapped_view(*args, **kwargs):
-        if not session.get("access_token"):
+        access_token = session.get("access_token")
+        refresh_token = session.get("refresh_token")
+
+        if not access_token:
             return redirect(url_for("login"))
+
+        if refresh_token:
+            try:
+                auth_data = refresh_session(
+                    refresh_token=refresh_token,
+                )
+
+                renewed_access_token = auth_data.get(
+                    "access_token"
+                )
+                renewed_refresh_token = auth_data.get(
+                    "refresh_token"
+                )
+                user = auth_data.get("user") or {}
+
+                if renewed_access_token:
+                    session["access_token"] = (
+                        renewed_access_token
+                    )
+
+                if renewed_refresh_token:
+                    session["refresh_token"] = (
+                        renewed_refresh_token
+                    )
+
+                if user.get("id"):
+                    session["user_id"] = user["id"]
+
+                if user.get("email"):
+                    session["user_email"] = user["email"]
+
+            except SupabaseAuthError:
+                session.clear()
+                return redirect(url_for("login"))
 
         return view_function(*args, **kwargs)
 
