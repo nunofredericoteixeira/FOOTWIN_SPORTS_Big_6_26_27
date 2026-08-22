@@ -34,6 +34,9 @@ from src.collectors.seriea_lineup_collector import (
 from src.collectors.bundesliga_lineup_collector import (
     collect_match_lineup as collect_ger1_lineup,
 )
+from src.collectors.tipsterarea_bwin_odds_collector import (
+    find_bwin_odds,
+)
 from src.database.init_database import connect_database
 from src.models.lineup_context_service import (
     load_match_lineup_context,
@@ -41,6 +44,13 @@ from src.models.lineup_context_service import (
 from src.models.prediction_storage_service import (
     PredictionStorageError,
     predict_and_store_matches,
+)
+from src.services.prediction_evaluation_service import (
+    determine_prudent_prediction,
+)
+from src.services.supabase_bwin_odds_service import (
+    load_bwin_odds_internal,
+    save_bwin_odds,
 )
 
 
@@ -392,7 +402,11 @@ def get_current_confirmed_prediction(
             prediction_stage,
             lineup_id,
             lineup_hash,
-            is_current
+            is_current,
+            home_win_probability,
+            draw_probability,
+            away_win_probability,
+            most_likely_score
         FROM match_predictions
         WHERE match_id = ?
           AND model_version = ?
@@ -409,6 +423,108 @@ def get_current_confirmed_prediction(
         ),
     ).fetchone()
 
+
+
+def try_cache_bwin_odds_for_confirmed_prediction(
+    *,
+    item: MatchCycleResult,
+    current_prediction: sqlite3.Row,
+) -> str:
+    """
+    Procura e grava odds Bwin apenas após existir
+    uma CONFIRMED_LINEUP atual.
+
+    Uma falha neste processo nunca deve interromper
+    o ciclo principal de onzes/previsões.
+    """
+
+    try:
+        cached = load_bwin_odds_internal(
+            match_id=item.match_id,
+        )
+
+        if cached is not None:
+            required_cache_fields = (
+                "tipsterarea_id",
+                "odd_1",
+                "odd_x",
+                "odd_2",
+                "odd_1x",
+                "odd_12",
+                "odd_x2",
+            )
+
+            cache_complete = all(
+                cached.get(field) is not None
+                for field in required_cache_fields
+            )
+
+            if cache_complete:
+                return "odds=BWIN_CACHE_EXISTENTE"
+
+        prudent_prediction = (
+            determine_prudent_prediction(
+                float(
+                    current_prediction[
+                        "home_win_probability"
+                    ]
+                ),
+                float(
+                    current_prediction[
+                        "draw_probability"
+                    ]
+                ),
+                float(
+                    current_prediction[
+                        "away_win_probability"
+                    ]
+                ),
+                current_prediction[
+                    "most_likely_score"
+                ],
+            )
+        )
+
+        odds_result = find_bwin_odds(
+            home_team=item.home_team_name,
+            away_team=item.away_team_name,
+            footwin_prediction=(
+                prudent_prediction
+            ),
+            kickoff_utc_iso=(
+                item.match_date
+            ),
+        )
+
+        if odds_result is None:
+            return "odds=BWIN_NAO_ENCONTRADA"
+
+        save_bwin_odds(
+            match_id=item.match_id,
+            league_id=item.league_id,
+            event_date=(
+                odds_result.event_date
+            ),
+            tipsterarea_id=(
+                odds_result.tipsterarea_id
+            ),
+            canonical_url=(
+                odds_result.canonical_url
+            ),
+            odds=odds_result.odds,
+        )
+
+        return (
+            "odds=BWIN_GRAVADA"
+            f"[{prudent_prediction}="
+            f"{odds_result.selected_odd}]"
+        )
+
+    except Exception as exc:
+        return (
+            "odds=BWIN_ERRO"
+            f"[{type(exc).__name__}: {exc}]"
+        )
 
 
 def collect_lineup_by_league(
@@ -708,6 +824,20 @@ def run_lineup_prediction_cycle(
                         current_prediction[
                             "prediction_version"
                         ]
+                    )
+
+                    odds_message = (
+                        try_cache_bwin_odds_for_confirmed_prediction(
+                            item=item,
+                            current_prediction=(
+                                current_prediction
+                            ),
+                        )
+                    )
+
+                    item.message = (
+                        f"{item.message} | "
+                        f"{odds_message}"
                     )
 
                 item.message = (

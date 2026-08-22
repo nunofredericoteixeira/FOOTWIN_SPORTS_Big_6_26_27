@@ -148,6 +148,48 @@ def load_bwin_odds(
     return dict(rows[0])
 
 
+def load_bwin_odds_internal(
+    *,
+    match_id: str,
+) -> dict[str, Any] | None:
+    """
+    Lê o cache global usando SERVICE_ROLE.
+
+    Destina-se apenas a processos internos, como o ciclo
+    automático de CONFIRMED_LINEUP, para evitar recolhas
+    repetidas e sobrescritas desnecessárias.
+    """
+
+    response = requests.get(
+        (
+            f"{SUPABASE_URL}/rest/v1/"
+            "match_bwin_odds"
+        ),
+        headers=_service_headers(),
+        params={
+            "select": (
+                "match_id,league_id,event_date,"
+                "source,bookmaker,tipsterarea_id,"
+                "canonical_url,odd_1,odd_x,odd_2,"
+                "odd_1x,odd_12,odd_x2,"
+                "fetched_at,updated_at"
+            ),
+            "match_id": f"eq.{match_id}",
+            "limit": "1",
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+
+    _raise_for_response(response)
+
+    rows = response.json()
+
+    if not rows:
+        return None
+
+    return dict(rows[0])
+
+
 def load_bwin_odds_for_matches(
     *,
     match_ids: list[str],

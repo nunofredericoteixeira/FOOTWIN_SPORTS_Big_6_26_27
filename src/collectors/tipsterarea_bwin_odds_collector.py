@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 
 BASE_URL = "https://tipsterarea.com"
+MATCHES_DATE_URL = BASE_URL + "/matches/date-{date}"
 REQUEST_TIMEOUT = 15
 
 HEADERS = {
@@ -29,6 +30,7 @@ CLUB_AFFIXES = {
     "cf",
     "ac",
     "as",
+    "m",
 }
 
 
@@ -238,18 +240,181 @@ def kickoff_iso_to_date(
     return parsed.date().isoformat()
 
 
+def find_tipsterarea_match_url(
+    *,
+    home_team: str,
+    away_team: str,
+    kickoff_utc_iso: str,
+) -> tuple[int, str] | None:
+    match_date = kickoff_iso_to_date(
+        kickoff_utc_iso
+    )
+
+    parsed_date = datetime.fromisoformat(
+        match_date
+    )
+
+    date_slug = parsed_date.strftime(
+        "%d-%m-%Y"
+    )
+
+    response = requests.get(
+        MATCHES_DATE_URL.format(
+            date=date_slug
+        ),
+        timeout=REQUEST_TIMEOUT,
+        headers=HEADERS,
+        allow_redirects=True,
+    )
+
+    if response.status_code != 200:
+        return None
+
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser",
+    )
+
+    expected_home = normalize_team_name(
+        home_team
+    )
+    expected_away = normalize_team_name(
+        away_team
+    )
+
+    for game in soup.select(
+        "a.game[href]"
+    ):
+        home = game.select_one(
+            ".teams .home"
+        )
+        away = game.select_one(
+            ".teams .away"
+        )
+
+        if home is None or away is None:
+            continue
+
+        page_home = normalize_team_name(
+            " ".join(home.stripped_strings)
+        )
+        page_away = normalize_team_name(
+            " ".join(away.stripped_strings)
+        )
+
+        if (
+            page_home != expected_home
+            or page_away != expected_away
+        ):
+            continue
+
+        href = str(
+            game.get("href") or ""
+        ).strip()
+
+        match = re.search(
+            r"-(\d+)$",
+            href,
+        )
+
+        if match is None:
+            continue
+
+        tipsterarea_id = int(
+            match.group(1)
+        )
+
+        if href.startswith("http"):
+            canonical_url = href
+        else:
+            canonical_url = (
+                f"{BASE_URL}{href}"
+            )
+
+        return (
+            tipsterarea_id,
+            canonical_url,
+        )
+
+    return None
+
+
 def find_bwin_odds(
     *,
     home_team: str,
     away_team: str,
     footwin_prediction: str,
     kickoff_utc_iso: str,
-    first_id: int,
-    last_id: int,
+    first_id: int | None = None,
+    last_id: int | None = None,
 ) -> BwinOddsResult | None:
     match_date = kickoff_iso_to_date(
         kickoff_utc_iso
     )
+
+    discovered = (
+        find_tipsterarea_match_url(
+            home_team=home_team,
+            away_team=away_team,
+            kickoff_utc_iso=(
+                kickoff_utc_iso
+            ),
+        )
+    )
+
+    if discovered is not None:
+        tipsterarea_id, url = (
+            discovered
+        )
+
+        response = requests.get(
+            url,
+            timeout=REQUEST_TIMEOUT,
+            headers=HEADERS,
+            allow_redirects=True,
+        )
+
+        if (
+            response.status_code == 200
+            and page_matches_exact_fixture(
+                response.text,
+                home_team,
+                away_team,
+                match_date,
+            )
+        ):
+            odds = parse_bwin_odds(
+                response.text
+            )
+
+            prediction = str(
+                footwin_prediction
+            ).strip().upper()
+
+            return BwinOddsResult(
+                tipsterarea_id=(
+                    tipsterarea_id
+                ),
+                canonical_url=(
+                    response.url
+                ),
+                home_team=home_team,
+                away_team=away_team,
+                event_date=match_date,
+                odds=odds,
+                footwin_prediction=(
+                    prediction
+                ),
+                selected_odd=odds.get(
+                    prediction
+                ),
+            )
+
+    if (
+        first_id is None
+        or last_id is None
+    ):
+        return None
 
     session = requests.Session()
     session.headers.update(HEADERS)
