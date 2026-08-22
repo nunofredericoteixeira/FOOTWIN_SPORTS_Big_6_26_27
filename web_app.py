@@ -91,6 +91,10 @@ from src.services.supabase_betting_service import (
     save_pending_bet,
     settle_bet,
 )
+from src.services.supabase_bwin_odds_service import (
+    SupabaseBwinOddsError,
+    load_bwin_odds_for_matches,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "database" / "footwin_sports.db"
@@ -2484,17 +2488,13 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                   AND m.season_label = ?
                   AND (
                       m.status = 'PLAYED'
-                      OR (
-                          m.round_number IN ({placeholders})
-                          AND m.status IN ('SCHEDULED', 'POSTPONED')
-                      )
+                      OR m.status IN ('SCHEDULED', 'POSTPONED')
                   )
                 ORDER BY m.match_date, m.match_id
                 """,
                 (
                     league_id,
                     SEASON_LABEL,
-                    *future_round_numbers,
                 ),
             ).fetchall()
 
@@ -2553,11 +2553,19 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                     )
                     kickoff_utc_iso = ""
 
-                if (
-                    row["status"] in ("SCHEDULED", "POSTPONED")
-                    and sort_timestamp < datetime.now(timezone.utc)
-                ):
-                    continue
+                if row["status"] in ("SCHEDULED", "POSTPONED"):
+                    now_utc = datetime.now(timezone.utc)
+
+                    if sort_timestamp >= now_utc:
+                        if int(row["round_number"]) not in future_round_numbers:
+                            continue
+                    else:
+                        seconds_since_kickoff = (
+                            now_utc - sort_timestamp
+                        ).total_seconds()
+
+                        if seconds_since_kickoff > 6 * 60 * 60:
+                            continue
 
                 home_probability = float(
                     row["home_win_probability"]
@@ -3116,6 +3124,21 @@ def get_user_betting_state(
         access_token=access_token,
     )
 
+    try:
+        bwin_odds_by_match = load_bwin_odds_for_matches(
+            match_ids=[
+                str(match["match_id"])
+                for match in matches
+            ],
+            access_token=access_token,
+        )
+    except SupabaseBwinOddsError as exc:
+        print(
+            "AVISO: não foi possível carregar odds Bwin: "
+            f"{exc}"
+        )
+        bwin_odds_by_match = {}
+
     bets_by_match = {
         str(row["match_id"]): {
             "id": int(row["id"]),
@@ -3152,6 +3175,33 @@ def get_user_betting_state(
             bet.get("prudent_prediction")
             or match["prudent"]
         )
+
+        if odd is None:
+            bwin_row = bwin_odds_by_match.get(
+                str(match["match_id"])
+            )
+
+            if bwin_row is not None:
+                odd_field_by_prediction = {
+                    "1": "odd_1",
+                    "X": "odd_x",
+                    "2": "odd_2",
+                    "1X": "odd_1x",
+                    "12": "odd_12",
+                    "X2": "odd_x2",
+                }
+
+                odd_field = odd_field_by_prediction.get(
+                    str(bet_prudent).strip().upper()
+                )
+
+                if (
+                    odd_field is not None
+                    and bwin_row.get(odd_field) is not None
+                ):
+                    odd = float(
+                        bwin_row[odd_field]
+                    )
 
         match["bet_odd"] = odd
         match["bet_stake"] = stake
@@ -3540,11 +3590,19 @@ def save_betting_state():
         odd_raw = item.get("odd")
         stake_raw = item.get("stake")
 
-        if (
-            odd_raw in (None, "")
-            and stake_raw in (None, "")
-        ):
+        if stake_raw in (None, ""):
             continue
+
+        if odd_raw in (None, ""):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        "Não existe odd disponível "
+                        "para esta aposta."
+                    ),
+                }
+            ), 400
 
         try:
             odd = float(odd_raw)
