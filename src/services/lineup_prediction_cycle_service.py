@@ -1129,6 +1129,12 @@ def main() -> None:
         args.now_local
     )
 
+    database_path = (
+        Path(__file__).resolve().parents[2]
+        / "database"
+        / "footwin_sports.db"
+    )
+
     result = run_lineup_prediction_cycle(
         season_label=args.season,
         window_start_minutes=(
@@ -1140,6 +1146,7 @@ def main() -> None:
         league_id=args.league,
         match_id=args.match_id,
         now_local=effective_now,
+        database_path=database_path,
     )
 
     print_cycle_result(

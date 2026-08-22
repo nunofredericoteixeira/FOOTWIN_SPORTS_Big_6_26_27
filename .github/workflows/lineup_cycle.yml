@@ -1,0 +1,25 @@
+name: FOOTWIN Lineup Cycle
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run-lineup-cycle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger production lineup cycle
+        env:
+          LINEUP_CYCLE_TOKEN: ${{ secrets.LINEUP_CYCLE_TOKEN }}
+        run: |
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --max-time 180 \
+            -X POST \
+            "https://footwin-sports-big-6-26-27.onrender.com/internal/run-lineup-cycle" \
+            -H "X-Lineup-Cycle-Token: ${LINEUP_CYCLE_TOKEN}"

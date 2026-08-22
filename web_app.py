@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import math
 import os
 import sqlite3
@@ -75,6 +76,7 @@ from flask import (
 )
 
 from src.services.final_result_service import run_final_result_update
+from src.services.lineup_prediction_cycle_service import run_lineup_prediction_cycle
 from src.services.prediction_evaluation_service import run_prediction_evaluation
 from src.services.supabase_auth_service import (
     SupabaseAuthError,
@@ -3344,6 +3346,83 @@ def login_required(view_function):
         return view_function(*args, **kwargs)
 
     return wrapped_view
+
+
+@app.route("/internal/run-lineup-cycle", methods=["POST"])
+def internal_run_lineup_cycle():
+    expected_token = os.environ.get(
+        "LINEUP_CYCLE_TOKEN",
+        "",
+    )
+    supplied_token = request.headers.get(
+        "X-Lineup-Cycle-Token",
+        "",
+    )
+
+    if (
+        not expected_token
+        or not supplied_token
+        or not hmac.compare_digest(
+            supplied_token,
+            expected_token,
+        )
+    ):
+        return jsonify(
+            {
+                "ok": False,
+                "error": "Unauthorized.",
+            }
+        ), 401
+
+    try:
+        result = run_lineup_prediction_cycle(
+            season_label=SEASON_LABEL,
+            window_start_minutes=75,
+            window_end_minutes=-30,
+            database_path=DATABASE_PATH,
+        )
+    except Exception as exc:
+        print(
+            "ERRO no ciclo interno de onzes: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return jsonify(
+            {
+                "ok": False,
+                "error": (
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            }
+        ), 500
+
+    return jsonify(
+        {
+            "ok": result.errors == 0,
+            "checked_matches": (
+                result.checked_matches
+            ),
+            "collections_executed": (
+                result.collections_executed
+            ),
+            "lineups_available": (
+                result.lineups_available
+            ),
+            "predictions_inserted": (
+                result.predictions_inserted
+            ),
+            "predictions_unchanged": (
+                result.predictions_unchanged
+            ),
+            "predictions_updated": (
+                result.predictions_updated
+            ),
+            "waiting_lineups": (
+                result.waiting_lineups
+            ),
+            "skipped": result.skipped,
+            "errors": result.errors,
+        }
+    ), 200 if result.errors == 0 else 500
 
 
 @app.route("/login", methods=["GET", "POST"])
