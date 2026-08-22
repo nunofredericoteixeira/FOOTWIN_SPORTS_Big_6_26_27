@@ -168,6 +168,16 @@ def initialize_betting_tables() -> None:
                 )
 
 
+
+def run_required_runtime_migrations() -> None:
+    from migrate_0009_seed_fra1_ita1_ger1_frozen import (
+        main as run_0009_seed_frozen_predictions,
+    )
+
+    run_0009_seed_frozen_predictions()
+
+
+run_required_runtime_migrations()
 initialize_betting_tables()
 
 HTML_TEMPLATE = """
