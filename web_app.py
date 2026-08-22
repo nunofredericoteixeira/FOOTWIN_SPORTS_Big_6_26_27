@@ -76,9 +76,6 @@ from flask import (
 
 from src.services.final_result_service import run_final_result_update
 from src.services.prediction_evaluation_service import run_prediction_evaluation
-from src.services.league_model_learning_service import (
-    run_automatic_league_learning,
-)
 from src.services.supabase_auth_service import (
     SupabaseAuthError,
     login_user,
@@ -3662,20 +3659,10 @@ def predictions():
             )
 
             if evaluation_summary.inserted_evaluations > 0:
-                learning_result = run_automatic_league_learning(
-                    league_id=league_id,
-                    season_label=SEASON_LABEL,
-                    newly_inserted_evaluations=(
-                        evaluation_summary.inserted_evaluations
-                    ),
-                    database_path=DATABASE_PATH,
-                )
-
                 print(
-                    "APRENDIZAGEM AUTOMATICA | "
+                    "APRENDIZAGEM AUTOMATICA PENDENTE | "
                     f"liga={league_id} | "
-                    f"triggered={learning_result.triggered} | "
-                    f"{learning_result.reason}"
+                    "não executada dentro da rota web"
                 )
         except Exception as exc:
             print(
