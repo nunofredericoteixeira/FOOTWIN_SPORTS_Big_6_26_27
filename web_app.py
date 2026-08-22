@@ -85,6 +85,14 @@ from src.services.supabase_auth_service import (
     logout_user,
     register_user,
 )
+from src.services.supabase_betting_service import (
+    SupabaseBettingError,
+    load_bankroll,
+    load_user_bets,
+    save_bankroll,
+    save_pending_bet,
+    settle_bet,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "database" / "footwin_sports.db"
@@ -1564,10 +1572,20 @@ HTML_TEMPLATE = """
                     Modo da aposta
                 </label>
                 <select id="stake-mode">
-                    <option value="fixed">
+                    <option
+                        value="fixed"
+                        {% if stake_mode|upper == "FIXED" %}
+                        selected
+                        {% endif %}
+                    >
                         Valor fixo (€)
                     </option>
-                    <option value="percentage">
+                    <option
+                        value="percentage"
+                        {% if stake_mode|upper == "PERCENTAGE" %}
+                        selected
+                        {% endif %}
+                    >
                         Percentagem (%)
                     </option>
                 </select>
@@ -2071,6 +2089,8 @@ HTML_TEMPLATE = """
                         body: JSON.stringify({
                             initial_bankroll:
                                 initialBankroll,
+                            stake_mode:
+                                stakeMode.value,
                             bets,
                         }),
                     }
@@ -3061,56 +3081,73 @@ def get_league_dashboard_summary(
 
 def get_user_betting_state(
     user_id: str,
+    access_token: str,
     matches: list[dict],
 ) -> dict:
-    with sqlite3.connect(DATABASE_PATH) as connection:
-        connection.row_factory = sqlite3.Row
+    bankroll_row = load_bankroll(
+        user_id=user_id,
+        access_token=access_token,
+    )
 
-        bankroll_row = connection.execute(
-            """
-            SELECT initial_bankroll
-            FROM user_bankrolls
-            WHERE user_id = ?
-            """,
-            (user_id,),
-        ).fetchone()
+    initial_bankroll = (
+        float(bankroll_row["initial_balance"])
+        if bankroll_row is not None
+        else 0.0
+    )
 
-        initial_bankroll = (
-            float(bankroll_row["initial_bankroll"])
-            if bankroll_row is not None
-            else 0.0
-        )
+    stored_current_balance = (
+        float(bankroll_row["current_balance"])
+        if bankroll_row is not None
+        else initial_bankroll
+    )
 
-        bet_rows = connection.execute(
-            """
-            SELECT match_id, odd, stake, prudent_prediction
-            FROM user_bets
-            WHERE user_id = ?
-            """,
-            (user_id,),
-        ).fetchall()
+    stake_mode = (
+        str(bankroll_row.get("stake_mode") or "FIXED")
+        if bankroll_row is not None
+        else "FIXED"
+    )
+
+    default_stake_value = (
+        float(bankroll_row.get("default_stake_value") or 0)
+        if bankroll_row is not None
+        else 0.0
+    )
+
+    bet_rows = load_user_bets(
+        user_id=user_id,
+        access_token=access_token,
+    )
 
     bets_by_match = {
         str(row["match_id"]): {
+            "id": int(row["id"]),
             "odd": (
                 float(row["odd"])
-                if row["odd"] is not None
+                if row.get("odd") is not None
                 else None
             ),
             "stake": (
-                float(row["stake"])
-                if row["stake"] is not None
+                float(row["stake_amount"])
+                if row.get("stake_amount") is not None
                 else None
             ),
-            "prudent_prediction": row["prudent_prediction"],
+            "prudent_prediction": row.get("selection"),
+            "status": str(
+                row.get("status") or "PENDING"
+            ).upper(),
         }
         for row in bet_rows
     }
 
-    current_bankroll = initial_bankroll
+    current_bankroll = stored_current_balance
+    bankroll_changed = False
 
     for match in matches:
-        bet = bets_by_match.get(match["match_id"], {})
+        bet = bets_by_match.get(
+            str(match["match_id"]),
+            {},
+        )
+
         odd = bet.get("odd")
         stake = bet.get("stake")
         bet_prudent = (
@@ -3121,38 +3158,85 @@ def get_user_betting_state(
         match["bet_odd"] = odd
         match["bet_stake"] = stake
         match["bet_prudent"] = bet_prudent
-        match["bet_status"] = "pending"
+
+        status = str(
+            bet.get("status") or "PENDING"
+        ).upper()
 
         if (
-            odd is None
-            or stake is None
-            or odd <= 0
-            or stake <= 0
-            or not match["actual_score"]
+            status == "PENDING"
+            and bet.get("id") is not None
+            and odd is not None
+            and stake is not None
+            and odd > 0
+            and stake > 0
+            and match.get("actual_score")
         ):
-            continue
+            home_text, away_text = (
+                match["actual_score"].split("-", 1)
+            )
+            home_goals = int(home_text)
+            away_goals = int(away_text)
 
-        home_text, away_text = match["actual_score"].split("-", 1)
-        home_goals = int(home_text)
-        away_goals = int(away_text)
+            if home_goals > away_goals:
+                final_result = "1"
+            elif home_goals < away_goals:
+                final_result = "2"
+            else:
+                final_result = "X"
 
-        if home_goals > away_goals:
-            final_result = "1"
-        elif home_goals < away_goals:
-            final_result = "2"
-        else:
-            final_result = "X"
+            if final_result in bet_prudent:
+                new_status = "WON"
+                actual_return = odd * stake
+                profit_loss = (odd - 1.0) * stake
+            else:
+                new_status = "LOST"
+                actual_return = 0.0
+                profit_loss = -stake
 
-        if final_result in bet_prudent:
+            new_balance = (
+                current_bankroll + profit_loss
+            )
+
+            settled = settle_bet(
+                user_id=user_id,
+                access_token=access_token,
+                bet_id=bet["id"],
+                status=new_status,
+                actual_return=actual_return,
+                profit_loss=profit_loss,
+                balance_after_settlement=new_balance,
+                home_goals=home_goals,
+                away_goals=away_goals,
+            )
+
+            if settled:
+                status = new_status
+                current_bankroll = new_balance
+                bankroll_changed = True
+
+        if status == "WON":
             match["bet_status"] = "won"
-            current_bankroll += (odd - 1.0) * stake
-        else:
+        elif status == "LOST":
             match["bet_status"] = "lost"
-            current_bankroll -= stake
+        else:
+            match["bet_status"] = "pending"
+
+    if bankroll_changed:
+        save_bankroll(
+            user_id=user_id,
+            access_token=access_token,
+            initial_balance=initial_bankroll,
+            current_balance=current_bankroll,
+            stake_mode=stake_mode,
+            default_stake_value=default_stake_value,
+        )
 
     return {
         "initial_bankroll": initial_bankroll,
         "current_bankroll": current_bankroll,
+        "stake_mode": stake_mode,
+        "default_stake_value": default_stake_value,
     }
 
 
@@ -3330,8 +3414,9 @@ def logout():
 @login_required
 def save_betting_state():
     user_id = session.get("user_id")
+    access_token = session.get("access_token")
 
-    if not user_id:
+    if not user_id or not access_token:
         return jsonify(
             {
                 "ok": False,
@@ -3367,6 +3452,21 @@ def save_betting_state():
             }
         ), 400
 
+    stake_mode = str(
+        payload.get("stake_mode") or "fixed"
+    ).strip().lower()
+
+    if stake_mode not in {
+        "fixed",
+        "percentage",
+    }:
+        return jsonify(
+            {
+                "ok": False,
+                "error": "O modo da aposta é inválido.",
+            }
+        ), 400
+
     bets_payload = payload.get("bets", [])
 
     if not isinstance(bets_payload, list):
@@ -3378,8 +3478,9 @@ def save_betting_state():
         ), 400
 
     _, current_matches = get_next_round_matches()
+
     matches_by_id = {
-        match["match_id"]: match
+        str(match["match_id"]): match
         for match in current_matches
     }
 
@@ -3404,15 +3505,10 @@ def save_betting_state():
         odd_raw = item.get("odd")
         stake_raw = item.get("stake")
 
-        if odd_raw in (None, "") and stake_raw in (None, ""):
-            validated_bets.append(
-                {
-                    "match_id": match_id,
-                    "odd": None,
-                    "stake": None,
-                    "prudent_prediction": match["prudent"],
-                }
-            )
+        if (
+            odd_raw in (None, "")
+            and stake_raw in (None, "")
+        ):
             continue
 
         try:
@@ -3453,66 +3549,76 @@ def save_betting_state():
             }
         )
 
-    with sqlite3.connect(DATABASE_PATH) as connection:
-        connection.execute(
-            """
-            INSERT INTO user_bankrolls (
-                user_id,
-                initial_bankroll,
-                updated_at
-            )
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(user_id) DO UPDATE SET
-                initial_bankroll = excluded.initial_bankroll,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (
-                user_id,
-                initial_bankroll,
-            ),
+    try:
+        existing_bankroll = load_bankroll(
+            user_id=user_id,
+            access_token=access_token,
         )
 
-        for bet in validated_bets:
-            connection.execute(
-                """
-                INSERT INTO user_bets (
-                    user_id,
-                    match_id,
-                    odd,
-                    stake,
-                    prudent_prediction,
-                    updated_at
+        if existing_bankroll is None:
+            current_balance = initial_bankroll
+        else:
+            stored_initial = float(
+                existing_bankroll.get(
+                    "initial_balance",
+                    initial_bankroll,
                 )
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(user_id, match_id) DO UPDATE SET
-                    odd = excluded.odd,
-                    stake = excluded.stake,
-                    prudent_prediction = (
-                        CASE
-                            WHEN user_bets.prudent_prediction
-                                IS NOT NULL
-                            THEN user_bets.prudent_prediction
-                            ELSE excluded.prudent_prediction
-                        END
-                    ),
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (
-                    user_id,
-                    bet["match_id"],
-                    bet["odd"],
-                    bet["stake"],
-                    bet["prudent_prediction"],
-                ),
+            )
+            stored_current = float(
+                existing_bankroll.get(
+                    "current_balance",
+                    initial_bankroll,
+                )
             )
 
-        connection.commit()
+            if abs(
+                stored_initial - initial_bankroll
+            ) > 0.000001:
+                current_balance = initial_bankroll
+            else:
+                current_balance = stored_current
 
-    _, refreshed_matches = get_next_round_matches()
-    betting_state = get_user_betting_state(
-        user_id=user_id,
-        matches=refreshed_matches,
-    )
+        save_bankroll(
+            user_id=user_id,
+            access_token=access_token,
+            initial_balance=initial_bankroll,
+            current_balance=current_balance,
+            stake_mode=stake_mode,
+            default_stake_value=0.0,
+        )
+
+        running_balance = current_balance
+
+        for bet in validated_bets:
+            save_pending_bet(
+                user_id=user_id,
+                access_token=access_token,
+                match_id=bet["match_id"],
+                selection=bet[
+                    "prudent_prediction"
+                ],
+                odd=bet["odd"],
+                stake_amount=bet["stake"],
+                balance_before=running_balance,
+                balance_after_stake=running_balance,
+            )
+
+        betting_state = get_user_betting_state(
+            user_id=user_id,
+            access_token=access_token,
+            matches=current_matches,
+        )
+
+    except SupabaseBettingError as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "error": (
+                    "Não foi possível guardar a carteira "
+                    f"no Supabase: {exc}"
+                ),
+            }
+        ), 502
 
     return jsonify(
         {
@@ -3522,6 +3628,9 @@ def save_betting_state():
             ),
             "current_bankroll": (
                 betting_state["current_bankroll"]
+            ),
+            "stake_mode": (
+                betting_state["stake_mode"]
             ),
         }
     )
@@ -3580,6 +3689,7 @@ def predictions():
 
     betting_state = get_user_betting_state(
         user_id=user_id,
+        access_token=session.get("access_token"),
         matches=matches,
     )
 
@@ -3704,6 +3814,10 @@ def predictions():
         updated_at=updated_at,
         initial_bankroll=betting_state["initial_bankroll"],
         current_bankroll=betting_state["current_bankroll"],
+        stake_mode=betting_state["stake_mode"],
+        default_stake_value=betting_state[
+            "default_stake_value"
+        ],
         league_rounds=league_rounds,
         league_versions=league_versions,
         league_summaries=league_summaries,
