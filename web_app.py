@@ -23,6 +23,7 @@ SEASON_LABEL = "2026/27"
 
 
 UTC_NAIVE_LEAGUES = {
+    "POR1",
     "ENG1",
     "ESP1",
     "FRA1",
