@@ -158,6 +158,7 @@ def parse_league_datetime(
         )
 
     utc_naive_leagues = {
+        "POR1",
         "ESP1",
         "FRA1",
         "ENG1",
