@@ -78,6 +78,7 @@ from flask import (
 
 from src.services.final_result_service import run_final_result_update
 from src.services.lineup_prediction_cycle_service import run_lineup_prediction_cycle
+from src.services.por1_calendar_refresh_service import refresh_por1_calendar
 from src.services.prediction_evaluation_service import run_prediction_evaluation
 from src.services.supabase_auth_service import (
     SupabaseAuthError,
@@ -3376,6 +3377,19 @@ def internal_run_lineup_cycle():
         ), 401
 
     try:
+        calendar_result = refresh_por1_calendar(
+            database_path=DATABASE_PATH,
+            season_label=SEASON_LABEL,
+        )
+
+        print(
+            "POR1 CALENDAR REFRESH | "
+            f"checked={calendar_result.checked_matches} | "
+            f"updated={calendar_result.updated_matches} | "
+            f"unchanged={calendar_result.unchanged_matches} | "
+            f"missing_remote={calendar_result.missing_remote_matches}"
+        )
+
         result = run_lineup_prediction_cycle(
             season_label=SEASON_LABEL,
             window_start_minutes=75,
