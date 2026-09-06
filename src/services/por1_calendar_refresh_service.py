@@ -9,6 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from src.services.supabase_match_runtime_state_service import (
+    save_match_runtime_state,
+)
+
 
 REMOTE_ICS_URL = (
     "https://www.ligaportugal.pt/"
@@ -196,7 +200,9 @@ def refresh_por1_calendar(
                 match_id,
                 match_date,
                 source_url,
-                status
+                status,
+                home_goals,
+                away_goals
             FROM matches
             WHERE league_id = 'POR1'
               AND season_label = ?
@@ -242,6 +248,16 @@ def refresh_por1_calendar(
             if old_date == new_date:
                 result.unchanged_matches += 1
                 continue
+
+            save_match_runtime_state(
+                match_id=str(row["match_id"]),
+                league_id="POR1",
+                match_date=new_date,
+                status=str(row["status"]),
+                home_goals=row["home_goals"],
+                away_goals=row["away_goals"],
+                source_url=source_url,
+            )
 
             connection.execute(
                 """

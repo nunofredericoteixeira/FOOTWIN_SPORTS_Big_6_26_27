@@ -87,6 +87,9 @@ from src.services.supabase_auth_service import (
     refresh_session,
     register_user,
 )
+from src.services.supabase_match_runtime_state_service import (
+    hydrate_sqlite_match_runtime_state,
+)
 from src.services.supabase_betting_service import (
     SupabaseBettingError,
     load_bankroll,
@@ -182,6 +185,16 @@ def run_required_runtime_migrations() -> None:
 
 
 run_required_runtime_migrations()
+
+hydrated_runtime_matches = hydrate_sqlite_match_runtime_state(
+    database_path=DATABASE_PATH,
+)
+
+print(
+    "MATCH RUNTIME HYDRATION | "
+    f"applied={hydrated_runtime_matches}"
+)
+
 initialize_betting_tables()
 
 HTML_TEMPLATE = """

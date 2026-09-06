@@ -13,6 +13,9 @@ import requests
 from bs4 import BeautifulSoup
 
 from src.database.init_database import connect_database
+from src.services.supabase_match_runtime_state_service import (
+    save_match_runtime_state,
+)
 from src.utils.logger import get_logger
 
 
@@ -965,6 +968,18 @@ def run_final_result_update(
                         match_id,
                     )
                     continue
+
+                save_match_runtime_state(
+                    match_id=match_id,
+                    league_id=row_league_id,
+                    match_date=str(
+                        row["match_date"]
+                    ),
+                    status="PLAYED",
+                    home_goals=result.home_goals,
+                    away_goals=result.away_goals,
+                    source_url=source_url,
+                )
 
                 with connection:
                     update_match_result(
