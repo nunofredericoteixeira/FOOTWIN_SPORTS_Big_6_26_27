@@ -2547,16 +2547,35 @@ def get_next_round_matches() -> tuple[int | None, list[dict]]:
                         match_date,
                     )
 
-                    display_date = sort_timestamp.strftime(
-                        "%d/%m/%Y · %H:%M UTC"
+                    placeholder_kickoff = (
+                        row["status"] in (
+                            "SCHEDULED",
+                            "POSTPONED",
+                        )
+                        and str(match_date).strip().endswith(
+                            "00:00:00"
+                        )
                     )
 
-                    kickoff_utc_iso = (
-                        sort_timestamp
-                        .astimezone(timezone.utc)
-                        .isoformat()
-                        .replace("+00:00", "Z")
-                    )
+                    if placeholder_kickoff:
+                        display_date = (
+                            sort_timestamp.strftime(
+                                "%d/%m/%Y"
+                            )
+                            + " · Horário por definir"
+                        )
+                        kickoff_utc_iso = ""
+                    else:
+                        display_date = sort_timestamp.strftime(
+                            "%d/%m/%Y · %H:%M UTC"
+                        )
+
+                        kickoff_utc_iso = (
+                            sort_timestamp
+                            .astimezone(timezone.utc)
+                            .isoformat()
+                            .replace("+00:00", "Z")
+                        )
 
                 except (TypeError, ValueError):
                     display_date = (
