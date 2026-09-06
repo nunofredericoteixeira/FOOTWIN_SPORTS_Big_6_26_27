@@ -47,6 +47,80 @@ def _unfold_ics(text: str) -> str:
     )
 
 
+def _load_match_page_date(
+    source_url: str,
+) -> str | None:
+    """
+    Fallback para jogos que já desapareceram do ICS oficial.
+
+    Consulta a página individual da Liga Portugal e extrai
+    o kickoff associado à estrutura do próprio encontro.
+    """
+
+    source_url = str(
+        source_url or ""
+    ).strip()
+
+    if (
+        "/match/20262027/"
+        "ligaportugalbetclic/"
+        not in source_url
+    ):
+        return None
+
+    try:
+        request = Request(
+            source_url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 "
+                    "(Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) "
+                    "Chrome/150.0.0.0 Safari/537.36"
+                ),
+            },
+        )
+
+        with urlopen(
+            request,
+            timeout=60,
+        ) as response:
+            html = response.read().decode(
+                "utf-8",
+                errors="replace",
+            )
+
+    except Exception:
+        return None
+
+    matches = re.findall(
+        (
+            r'"minutesTillMatchStarts":'
+            r'[^}]{0,1000}\},"'
+            r'(20\d{2}-\d{2}-\d{2}'
+            r'T\d{2}:\d{2}:\d{2}Z)"'
+        ),
+        html,
+        flags=re.DOTALL,
+    )
+
+    if len(matches) != 1:
+        return None
+
+    try:
+        parsed = datetime.strptime(
+            matches[0],
+            "%Y-%m-%dT%H:%M:%SZ",
+        )
+    except ValueError:
+        return None
+
+    return parsed.strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
 def _load_remote_dates(
     text: str,
 ) -> dict[str, str]:
@@ -145,6 +219,17 @@ def refresh_por1_calendar(
             new_date = remote_dates.get(
                 source_url
             )
+
+            if (
+                not new_date
+                and str(row["status"]) in (
+                    "SCHEDULED",
+                    "POSTPONED",
+                )
+            ):
+                new_date = _load_match_page_date(
+                    source_url
+                )
 
             if not new_date:
                 result.missing_remote_matches += 1
