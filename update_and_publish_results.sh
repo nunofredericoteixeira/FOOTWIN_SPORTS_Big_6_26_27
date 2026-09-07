@@ -30,7 +30,7 @@ if git diff --quiet -- docs/index.html; then
 fi
 
 git add docs/index.html
-git commit -m "Atualizar resultados finais e validação dos prognósticos"
+git commit docs/index.html -m "Atualizar resultados finais e validação dos prognósticos"
 git push origin master
 
 echo "$LOG_PREFIX Site público atualizado e publicado."
