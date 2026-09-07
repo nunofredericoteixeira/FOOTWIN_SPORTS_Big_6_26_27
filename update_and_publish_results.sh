@@ -14,7 +14,7 @@ echo "$LOG_PREFIX Início da atualização."
 from src.services.final_result_service import run_final_result_update
 
 summary = run_final_result_update(
-    league_id='POR1',
+    league_id=None,
     season_label='2026/27',
     minutes_after_kickoff=120,
 )

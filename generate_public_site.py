@@ -7,6 +7,7 @@ from flask import render_template_string
 from web_app import (
     HTML_TEMPLATE,
     app,
+    get_algorithm_accuracy,
     get_next_round_matches,
 )
 
@@ -39,6 +40,38 @@ def generate_public_site() -> Path:
         else "Sem registo"
     )
 
+    future_matches = [
+        match
+        for match in matches
+        if match["status"] in (
+            "SCHEDULED",
+            "POSTPONED",
+        )
+    ]
+
+    next_match_id = None
+
+    if future_matches:
+        next_match = min(
+            future_matches,
+            key=lambda match: match["sort_timestamp"],
+        )
+        next_match_id = next_match["match_id"]
+
+    for match in matches:
+        match.setdefault("bet_odd", None)
+        match.setdefault("bet_stake", None)
+        match.setdefault("bet_prudent", match.get("prudent"))
+        match.setdefault("bet_status", "pending")
+
+    accuracy = get_algorithm_accuracy()
+
+    algorithm_accuracy_label = (
+        "Sem dados"
+        if accuracy is None
+        else f"{accuracy:.2f}%"
+    )
+
     with app.app_context():
         html = render_template_string(
             HTML_TEMPLATE,
@@ -46,6 +79,12 @@ def generate_public_site() -> Path:
             round_number=round_number,
             key=key,
             updated_at=updated_at,
+            algorithm_accuracy_label=algorithm_accuracy_label,
+            next_match_id=next_match_id,
+            initial_bankroll=0.0,
+            current_bankroll=0.0,
+            stake_mode="FIXED",
+            default_stake_value=0.0,
         )
 
         # O Flask local usa /assets/..., mas o GitHub Pages publica
