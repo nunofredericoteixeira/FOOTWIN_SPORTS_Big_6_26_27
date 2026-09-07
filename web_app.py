@@ -90,6 +90,11 @@ from src.services.supabase_auth_service import (
 from src.services.supabase_match_runtime_state_service import (
     hydrate_sqlite_match_runtime_state,
 )
+from src.services.supabase_prediction_runtime_service import (
+    hydrate_sqlite_learning_runtime,
+    hydrate_sqlite_prediction_runtime,
+    sync_league_evaluation_runtime,
+)
 from src.services.supabase_betting_service import (
     SupabaseBettingError,
     load_bankroll,
@@ -193,6 +198,32 @@ hydrated_runtime_matches = hydrate_sqlite_match_runtime_state(
 print(
     "MATCH RUNTIME HYDRATION | "
     f"applied={hydrated_runtime_matches}"
+)
+
+hydrated_learning_runtime = hydrate_sqlite_learning_runtime(
+    database_path=DATABASE_PATH,
+)
+
+print(
+    "LEARNING RUNTIME HYDRATION | "
+    f"model_versions={hydrated_learning_runtime['model_versions']} | "
+    f"model_parameters={hydrated_learning_runtime['model_parameters']} | "
+    f"team_ratings={hydrated_learning_runtime['team_ratings']} | "
+    f"model_candidates={hydrated_learning_runtime['model_candidates']} | "
+    f"promotion_decisions={hydrated_learning_runtime['promotion_decisions']}"
+)
+
+hydrated_prediction_runtime = hydrate_sqlite_prediction_runtime(
+    database_path=DATABASE_PATH,
+)
+
+print(
+    "PREDICTION RUNTIME HYDRATION | "
+    f"players={hydrated_prediction_runtime['players']} | "
+    f"lineups={hydrated_prediction_runtime['lineups']} | "
+    f"lineup_players={hydrated_prediction_runtime['lineup_players']} | "
+    f"predictions={hydrated_prediction_runtime['predictions']} | "
+    f"evaluations={hydrated_prediction_runtime['evaluations']}"
 )
 
 initialize_betting_tables()
@@ -3889,6 +3920,20 @@ def predictions():
                 season_label=SEASON_LABEL,
                 database_path=DATABASE_PATH,
             )
+
+            if evaluation_summary.inserted_evaluations > 0:
+                synced_evaluations = (
+                    sync_league_evaluation_runtime(
+                        league_id=league_id,
+                        database_path=DATABASE_PATH,
+                    )
+                )
+
+                print(
+                    "EVALUATION RUNTIME SYNC | "
+                    f"league={league_id} | "
+                    f"evaluations={synced_evaluations}"
+                )
 
             if evaluation_summary.inserted_evaluations > 0:
                 print(

@@ -20,6 +20,9 @@ from src.services.prediction_evaluation_service import (
     determine_predicted_outcome,
     determine_prudent_prediction,
 )
+from src.services.supabase_prediction_runtime_service import (
+    sync_league_learning_runtime,
+)
 
 
 STAGE_PRIORITY = {
@@ -1671,6 +1674,21 @@ def run_automatic_league_learning(
             f"decisão {analysis.decision.decision}. "
             "Modelo ACTIVE mantido."
         )
+
+    runtime_sync = sync_league_learning_runtime(
+        league_id=final_league_id,
+        database_path=database_path,
+    )
+
+    print(
+        "LEARNING RUNTIME SYNC | "
+        f"league={final_league_id} | "
+        f"model_versions={runtime_sync['model_versions']} | "
+        f"model_parameters={runtime_sync['model_parameters']} | "
+        f"team_ratings={runtime_sync['team_ratings']} | "
+        f"model_candidates={runtime_sync['model_candidates']} | "
+        f"promotion_decisions={runtime_sync['promotion_decisions']}"
+    )
 
     return AutomaticLearningRun(
         league_id=final_league_id,

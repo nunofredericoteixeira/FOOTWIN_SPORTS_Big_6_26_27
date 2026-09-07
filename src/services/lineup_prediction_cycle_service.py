@@ -52,6 +52,9 @@ from src.services.supabase_bwin_odds_service import (
     load_bwin_odds_internal,
     save_bwin_odds,
 )
+from src.services.supabase_prediction_runtime_service import (
+    sync_match_prediction_runtime,
+)
 
 
 LEAGUE_TIMEZONES = {
@@ -845,6 +848,23 @@ def run_lineup_prediction_cycle(
                     f"{item.message} | "
                     f"qualidade="
                     f"{lineup_context.data_quality}"
+                )
+
+                runtime_sync = (
+                    sync_match_prediction_runtime(
+                        match_id=item.match_id,
+                        database_path=database_path,
+                    )
+                )
+
+                item.message = (
+                    f"{item.message} | "
+                    "runtime_sync="
+                    f"players:{runtime_sync['players']},"
+                    f"predictions:{runtime_sync['predictions']},"
+                    f"lineups:{runtime_sync['lineups']},"
+                    f"lineup_players:{runtime_sync['lineup_players']},"
+                    f"evaluations:{runtime_sync['evaluations']}"
                 )
 
             except (
