@@ -111,6 +111,7 @@ def predict_and_store_matches(
             league_id=league_id,
             round_number=round_number,
             match_id=match_id,
+            prediction_stage=final_prediction_stage,
         )
 
         if not matches:
@@ -347,10 +348,15 @@ def load_matches_for_prediction(
     league_id: str | None = None,
     round_number: int | None = None,
     match_id: str | None = None,
+    prediction_stage: str = "PRE_MATCH",
 ) -> list[dict[str, Any]]:
     """
     Carrega jogos elegíveis para previsão.
     """
+
+    final_prediction_stage = str(
+        prediction_stage
+    ).strip().upper()
 
     conditions = [
         "m.season_label = ?",
@@ -358,8 +364,15 @@ def load_matches_for_prediction(
             "m.status IN "
             "('SCHEDULED', 'POSTPONED')"
         ),
-        "m.match_date > CURRENT_TIMESTAMP",
     ]
+
+    if (
+        final_prediction_stage
+        != "CONFIRMED_LINEUP"
+    ):
+        conditions.append(
+            "m.match_date > CURRENT_TIMESTAMP"
+        )
 
     parameters: list[Any] = [
         season_label,
