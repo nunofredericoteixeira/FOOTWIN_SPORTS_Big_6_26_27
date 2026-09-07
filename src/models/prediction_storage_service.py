@@ -949,6 +949,24 @@ def upsert_prediction(
             ),
         ).fetchone()
 
+        if parent is None:
+            parent = connection.execute(
+                """
+                SELECT prediction_id
+                FROM match_predictions
+                WHERE match_id = ?
+                  AND prediction_stage = 'PRE_MATCH'
+                  AND is_current = 1
+                ORDER BY
+                    created_at DESC,
+                    prediction_version DESC
+                LIMIT 1
+                """,
+                (
+                    match_id,
+                ),
+            ).fetchone()
+
         if parent is not None:
             parent_prediction_id = str(
                 parent["prediction_id"]
