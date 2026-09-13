@@ -882,6 +882,7 @@ def evaluate_candidate_model(
                     league_id=league_id,
                     match_id=match.match_id,
                     prediction_stage="PRE_MATCH",
+                    allow_pre_match_recalculation=True,
                     database_path=database_path,
                 )
 

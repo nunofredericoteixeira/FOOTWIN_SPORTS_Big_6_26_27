@@ -50,6 +50,7 @@ def predict_and_store_matches(
     match_id: str | None = None,
     prediction_stage: str = "PRE_MATCH",
     run_id: str | None = None,
+    allow_pre_match_recalculation: bool = False,
     max_goals: int = 12,
     score_limit: int = 10,
     database_path: str | Path | None = None,
@@ -256,6 +257,10 @@ def predict_and_store_matches(
                 "BEGIN IMMEDIATE"
             )
 
+            records_to_validate: list[
+                dict[str, Any]
+            ] = []
+
             for record in prepared_records:
                 action = upsert_prediction(
                     connection=connection,
@@ -263,30 +268,37 @@ def predict_and_store_matches(
                     available_columns=(
                         available_columns
                     ),
+                    allow_pre_match_recalculation=(
+                        allow_pre_match_recalculation
+                    ),
                 )
 
                 if action == "INSERTED":
                     result.inserted += 1
+                    records_to_validate.append(record)
 
                 elif action == "UPDATED":
                     result.updated += 1
+                    records_to_validate.append(record)
 
                 elif action == "UNCHANGED":
                     result.unchanged += 1
+                    records_to_validate.append(record)
 
                 else:
                     result.skipped += 1
 
-            validate_stored_predictions(
-                connection=connection,
-                records=prepared_records,
-                model_version=(
-                    final_model_version
-                ),
-                available_columns=(
-                    available_columns
-                ),
-            )
+            if records_to_validate:
+                validate_stored_predictions(
+                    connection=connection,
+                    records=records_to_validate,
+                    model_version=(
+                        final_model_version
+                    ),
+                    available_columns=(
+                        available_columns
+                    ),
+                )
 
             connection.commit()
 
@@ -754,14 +766,17 @@ def upsert_prediction(
     connection: sqlite3.Connection,
     record: dict[str, Any],
     available_columns: set[str],
+    *,
+    allow_pre_match_recalculation: bool = False,
 ) -> str:
     """
     Grava previsões por etapa e por versão.
 
     Regras:
-    - uma etapa pode ter apenas uma versão atual;
-    - cálculos iguais devolvem UNCHANGED;
-    - cálculos alterados desativam a versão anterior;
+    - PRE_MATCH oficial é imutável após a primeira publicação;
+    - o congelamento é por match_id, independentemente do modelo;
+    - backtests temporários podem usar bypass interno explícito;
+    - restantes etapas continuam versionadas por modelo e etapa;
     - a nova versão é sempre inserida, nunca sobrescrita.
     """
 
@@ -804,6 +819,41 @@ def upsert_prediction(
     stage = str(
         filtered_record["prediction_stage"]
     )
+
+    if (
+        stage == "PRE_MATCH"
+        and not allow_pre_match_recalculation
+    ):
+        published_pre_match = connection.execute(
+            """
+            SELECT
+                prediction_id,
+                model_version,
+                prediction_version
+            FROM match_predictions
+            WHERE match_id = ?
+              AND prediction_stage = 'PRE_MATCH'
+              AND is_current = 1
+            ORDER BY
+                created_at ASC,
+                prediction_version ASC,
+                prediction_id ASC
+            LIMIT 1
+            """,
+            (match_id,),
+        ).fetchone()
+
+        if published_pre_match is not None:
+            logger.info(
+                "PRE_MATCH oficial congelado | "
+                "match_id=%s | modelo_publicado=%s | "
+                "prediction_id=%s",
+                match_id,
+                published_pre_match["model_version"],
+                published_pre_match["prediction_id"],
+            )
+
+            return "FROZEN"
 
     if stage == "PRE_MATCH":
         confirmed_lineup = connection.execute(
