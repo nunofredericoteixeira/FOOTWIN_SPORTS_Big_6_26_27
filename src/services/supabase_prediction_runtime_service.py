@@ -536,15 +536,45 @@ def sync_match_prediction_runtime(
                 rows=runtime_players,
                 on_conflict="player_id",
             ),
-            "predictions": _upsert_rows(
-                table=PREDICTIONS_TABLE,
-                rows=predictions,
-                on_conflict="prediction_id",
+            "predictions": (
+                _upsert_rows(
+                    table=PREDICTIONS_TABLE,
+                    rows=[
+                        row
+                        for row in predictions
+                        if not row["is_current"]
+                    ],
+                    on_conflict="prediction_id",
+                )
+                + _upsert_rows(
+                    table=PREDICTIONS_TABLE,
+                    rows=[
+                        row
+                        for row in predictions
+                        if row["is_current"]
+                    ],
+                    on_conflict="prediction_id",
+                )
             ),
-            "lineups": _upsert_rows(
-                table=LINEUPS_TABLE,
-                rows=lineups,
-                on_conflict="lineup_id",
+            "lineups": (
+                _upsert_rows(
+                    table=LINEUPS_TABLE,
+                    rows=[
+                        row
+                        for row in lineups
+                        if not row["is_current"]
+                    ],
+                    on_conflict="lineup_id",
+                )
+                + _upsert_rows(
+                    table=LINEUPS_TABLE,
+                    rows=[
+                        row
+                        for row in lineups
+                        if row["is_current"]
+                    ],
+                    on_conflict="lineup_id",
+                )
             ),
             "lineup_players": _upsert_rows(
                 table=LINEUP_PLAYERS_TABLE,
